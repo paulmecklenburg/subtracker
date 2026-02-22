@@ -1,0 +1,170 @@
+:root {
+    --bg-color: #f4f4f9;
+    --text-color: #333;
+    --primary: #2ecc71;
+    --secondary: #95a5a6;
+    --danger: #e74c3c;
+    --bench: #3498db;
+    --card-bg: #fff;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background-color: var(--bg-color);
+    color: var(--text-color);
+    margin: 0;
+    padding: 10px;
+    display: flex;
+    justify-content: center;
+}
+
+.container {
+    width: 100%;
+    max-width: 500px;
+}
+
+section {
+    background: var(--card-bg);
+    margin-bottom: 15px;
+    padding: 15px;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+/* Clock */
+#clock-section {
+    text-align: center;
+}
+
+#stopwatch {
+    font-size: 4rem;
+    font-weight: bold;
+    font-family: monospace;
+    margin-bottom: 10px;
+}
+
+.clock-controls {
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+}
+
+/* Lists */
+h2 {
+    margin-top: 0;
+    font-size: 1.2rem;
+    border-bottom: 2px solid var(--bg-color);
+    padding-bottom: 5px;
+}
+
+.player-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.player-card {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px;
+    background: var(--bg-color);
+    border-radius: 6px;
+    border-left: 5px solid transparent;
+}
+
+.on-field-card { border-left-color: var(--primary); }
+.bench-card { border-left-color: var(--bench); }
+
+.player-info {
+    display: flex;
+    flex-direction: column;
+}
+
+.player-name {
+    font-weight: bold;
+    font-size: 1.1rem;
+}
+
+.player-time {
+    font-family: monospace;
+    font-size: 0.9rem;
+    color: #666;
+}
+
+.pulsing {
+    color: var(--primary);
+    animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+    0% { opacity: 1; }
+    50% { opacity: 0.5; }
+    100% { opacity: 1; }
+}
+
+/* Buttons */
+button {
+    padding: 12px 20px;
+    border: none;
+    border-radius: 6px;
+    font-weight: bold;
+    cursor: pointer;
+    font-size: 1rem;
+    transition: opacity 0.2s;
+}
+
+button:active { opacity: 0.7; }
+
+.btn-primary { background-color: var(--primary); color: white; }
+.btn-secondary { background-color: var(--secondary); color: white; }
+.btn-danger { background-color: var(--danger); color: white; width: 100%; }
+.btn-success { background-color: var(--primary); color: white; }
+.btn-link { background: none; color: #666; font-size: 0.9rem; text-decoration: underline; padding: 5px; }
+
+.sub-btn {
+    padding: 8px 15px;
+    font-size: 0.9rem;
+}
+
+/* Admin */
+.hidden { display: none; }
+
+.add-player {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 15px;
+}
+
+.add-player input {
+    flex-grow: 1;
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+}
+
+#roster-list {
+    list-style: none;
+    padding: 0;
+}
+
+#roster-list li {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px 0;
+    border-bottom: 1px solid #eee;
+}
+
+.remove-player-btn {
+    color: var(--danger);
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 0 5px;
+}
+
+.hint {
+    font-size: 0.8rem;
+    color: #888;
+    text-align: center;
+}

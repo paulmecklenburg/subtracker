@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SubTracker</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Section 1: Game Clock -->
+        <section id="clock-section">
+            <div id="stopwatch">00:00</div>
+            <div class="clock-controls">
+                <button id="toggle-btn" class="btn-primary">Start</button>
+                <button id="rewind-btn" class="btn-secondary">↺ -30s</button>
+            </div>
+        </section>
+
+        <!-- Section 2: On Field -->
+        <section id="on-field-section">
+            <h2>On Field</h2>
+            <div id="on-field-list" class="player-list">
+                <!-- Players will be injected here -->
+            </div>
+        </section>
+
+        <!-- Section 3: Bench -->
+        <section id="bench-section">
+            <h2>Bench</h2>
+            <div id="bench-list" class="player-list">
+                <!-- Players will be injected here -->
+            </div>
+        </section>
+
+        <!-- Section 4: Settings & Admin -->
+        <section id="admin-section">
+            <button id="admin-toggle" class="btn-link">⚙ Settings</button>
+            <div id="admin-content" class="hidden">
+                <h3>Roster Management</h3>
+                <div class="add-player">
+                    <input type="text" id="player-name" placeholder="Player Name">
+                    <button id="add-btn" class="btn-success">Add</button>
+                </div>
+                <ul id="roster-list"></ul>
+                <hr>
+                <button id="reset-btn" class="btn-danger">Reset Game Session</button>
+                <p class="hint">Resets all times. Roster is kept.</p>
+            </div>
+        </section>
+    </div>
+    <script src="script.js"></script>
+</body>
+</html>
