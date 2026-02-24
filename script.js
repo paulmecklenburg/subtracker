@@ -197,10 +197,8 @@ function renderPlayerList(container, players, times, btnText, cardClass) {
         div.className = `player-card ${cardClass}`;
         const isRunning = state.gameRunning && p.onField;
         div.innerHTML = `
-            <div class="player-info">
-                <span class="player-name">${p.name}</span>
-                <span class="player-time ${isRunning ? 'pulsing' : ''}">${formatTime(times[p.id])}</span>
-            </div>
+            <span class="player-name">${p.name}</span>
+            <span class="player-time ${isRunning ? 'pulsing' : ''}">${formatTime(times[p.id])}</span>
             <button class="sub-btn ${p.onField ? 'btn-secondary' : 'btn-primary'}" data-id="${p.id}">${btnText}</button>
         `;
         container.appendChild(div);
