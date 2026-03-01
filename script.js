@@ -4,7 +4,7 @@ let state = {
     accumulatedGameTime: 0,
     lastSyncTimestamp: null,
     lastUpdate: Date.now(),
-    roster: [] // { id, name, onField: false, totalPlayTime: 0 }
+    roster: [] // { id, name, onField: false, totalPlayTime: 0, isPresent: true }
 };
 
 const STORAGE_KEY = 'subtracker_state';
@@ -24,6 +24,10 @@ function loadState() {
             });
         }
         state = parsed;
+        // Migration: Ensure all players have isPresent property
+        state.roster.forEach(p => {
+            if (p.isPresent === undefined) p.isPresent = true;
+        });
     }
 }
 
@@ -111,7 +115,8 @@ function addPlayer() {
             id: Date.now().toString(),
             name: name,
             onField: false,
-            totalPlayTime: 0
+            totalPlayTime: 0,
+            isPresent: true
         });
         playerNameInput.value = '';
         saveState();
@@ -127,10 +132,22 @@ function removePlayer(id) {
     }
 }
 
+function togglePresence(id) {
+    const player = state.roster.find(p => p.id === id);
+    if (player) {
+        player.isPresent = !player.isPresent;
+        if (!player.isPresent) {
+            player.onField = false; // Player can't be on field if absent
+        }
+    }
+    saveState();
+    render();
+}
+
 function subPlayer(id) {
     syncState();
     const player = state.roster.find(p => p.id === id);
-    if (player) {
+    if (player && player.isPresent) {
         player.onField = !player.onField;
     }
     saveState();
@@ -161,9 +178,9 @@ function render() {
     toggleBtn.className = state.gameRunning ? 'btn-secondary' : 'btn-primary';
 
     // Sort Players
-    const onField = state.roster.filter(p => p.onField)
+    const onField = state.roster.filter(p => p.onField && p.isPresent)
         .sort((a, b) => playerTimes[b.id] - playerTimes[a.id]); // Most played at top
-    const bench = state.roster.filter(p => !p.onField)
+    const bench = state.roster.filter(p => !p.onField && p.isPresent)
         .sort((a, b) => playerTimes[a.id] - playerTimes[b.id]); // Least played at top
 
     // Render Lists
@@ -176,7 +193,10 @@ function render() {
         const li = document.createElement('li');
         li.innerHTML = `
             <span>${p.name}</span>
-            <button class="remove-player-btn" data-id="${p.id}">✕</button>
+            <div class="roster-actions">
+                <input type="checkbox" class="presence-checkbox" data-id="${p.id}" ${p.isPresent ? 'checked' : ''}>
+                <button class="remove-player-btn" data-id="${p.id}">✕</button>
+            </div>
         `;
         rosterListEl.appendChild(li);
     });
@@ -218,6 +238,9 @@ document.addEventListener('click', (e) => {
     }
     if (e.target.classList.contains('remove-player-btn')) {
         removePlayer(e.target.dataset.id);
+    }
+    if (e.target.classList.contains('presence-checkbox')) {
+        togglePresence(e.target.dataset.id);
     }
 });
 
