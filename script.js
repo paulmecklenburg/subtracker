@@ -4,7 +4,7 @@ let state = {
     accumulatedGameTime: 0,
     lastSyncTimestamp: null,
     lastUpdate: Date.now(),
-    roster: [] // { id, name, onField: false, totalPlayTime: 0, isPresent: true }
+    roster: [] // { id, name, onField: false, totalPlayTime: 0, currentStintTime: 0, lastSubOutGameTime: 0, isPresent: true }
 };
 
 const STORAGE_KEY = 'subtracker_state';
@@ -20,13 +20,17 @@ function loadState() {
             parsed.lastSyncTimestamp = null;
             parsed.roster.forEach(p => {
                 p.totalPlayTime = 0;
+                p.currentStintTime = 0;
+                p.lastSubOutGameTime = 0;
                 p.onField = false;
             });
         }
         state = parsed;
-        // Migration: Ensure all players have isPresent property
+        // Migration: Ensure all players have needed properties
         state.roster.forEach(p => {
             if (p.isPresent === undefined) p.isPresent = true;
+            if (p.currentStintTime === undefined) p.currentStintTime = 0;
+            if (p.lastSubOutGameTime === undefined) p.lastSubOutGameTime = 0;
         });
     }
 }
@@ -46,6 +50,10 @@ function getLiveTimes() {
         playerTimes: state.roster.reduce((acc, p) => {
             acc[p.id] = Math.max(0, p.totalPlayTime + (state.gameRunning && p.onField ? delta : 0));
             return acc;
+        }, {}),
+        stintTimes: state.roster.reduce((acc, p) => {
+            acc[p.id] = Math.max(0, p.currentStintTime + (state.gameRunning && p.onField ? delta : 0));
+            return acc;
         }, {})
     };
 }
@@ -56,7 +64,10 @@ function syncState() {
         const delta = now - state.lastSyncTimestamp;
         state.accumulatedGameTime += delta;
         state.roster.forEach(p => {
-            if (p.onField) p.totalPlayTime += delta;
+            if (p.onField) {
+                p.totalPlayTime += delta;
+                p.currentStintTime += delta;
+            }
         });
         state.lastSyncTimestamp = now;
     }
@@ -74,6 +85,7 @@ function formatTime(ms) {
 const stopwatchEl = document.getElementById('stopwatch');
 const toggleBtn = document.getElementById('toggle-btn');
 const onFieldListEl = document.getElementById('on-field-list');
+const onFieldHeaderEl = document.getElementById('on-field-header');
 const benchListEl = document.getElementById('bench-list');
 const adminToggle = document.getElementById('admin-toggle');
 const adminContent = document.getElementById('admin-content');
@@ -102,7 +114,10 @@ function rewind() {
     const rewindMs = 30000;
     state.accumulatedGameTime = Math.max(0, state.accumulatedGameTime - rewindMs);
     state.roster.forEach(p => {
-        if (p.onField) p.totalPlayTime = Math.max(0, p.totalPlayTime - rewindMs);
+        if (p.onField) {
+            p.totalPlayTime = Math.max(0, p.totalPlayTime - rewindMs);
+            p.currentStintTime = Math.max(0, p.currentStintTime - rewindMs);
+        }
     });
     saveState();
     render();
@@ -116,6 +131,8 @@ function addPlayer() {
             name: name,
             onField: false,
             totalPlayTime: 0,
+            currentStintTime: 0,
+            lastSubOutGameTime: 0,
             isPresent: true
         });
         playerNameInput.value = '';
@@ -148,7 +165,18 @@ function subPlayer(id) {
     syncState();
     const player = state.roster.find(p => p.id === id);
     if (player && player.isPresent) {
-        player.onField = !player.onField;
+        const nextOnField = !player.onField;
+        if (nextOnField) {
+            // Subbing in: reset stint time if enough time passed on bench
+            const benchDuration = state.accumulatedGameTime - player.lastSubOutGameTime;
+            if (benchDuration >= 30000) {
+                player.currentStintTime = 0;
+            }
+        } else {
+            // Subbing out: record game time
+            player.lastSubOutGameTime = state.accumulatedGameTime;
+        }
+        player.onField = nextOnField;
     }
     saveState();
     render();
@@ -161,6 +189,8 @@ function resetGame() {
         state.lastSyncTimestamp = null;
         state.roster.forEach(p => {
             p.totalPlayTime = 0;
+            p.currentStintTime = 0;
+            p.lastSubOutGameTime = 0;
             p.onField = false;
         });
         saveState();
@@ -170,7 +200,7 @@ function resetGame() {
 
 // Rendering
 function render() {
-    const { gameTime, playerTimes } = getLiveTimes();
+    const { gameTime, playerTimes, stintTimes } = getLiveTimes();
     
     // Update Clock
     stopwatchEl.textContent = formatTime(gameTime);
@@ -179,13 +209,21 @@ function render() {
 
     // Sort Players
     const onField = state.roster.filter(p => p.onField && p.isPresent)
-        .sort((a, b) => playerTimes[b.id] - playerTimes[a.id]); // Most played at top
+        .sort((a, b) => stintTimes[b.id] - stintTimes[a.id]); // Longest stint at top
     const bench = state.roster.filter(p => !p.onField && p.isPresent)
         .sort((a, b) => playerTimes[a.id] - playerTimes[b.id]); // Least played at top
 
+    // Update Headers visibility and structure
+    if (onField.length > 0) {
+        onFieldHeaderEl.classList.remove('hidden');
+        onFieldHeaderEl.classList.add('has-stint'); // Matches on-field-card layout
+    } else {
+        onFieldHeaderEl.classList.add('hidden');
+    }
+
     // Render Lists
-    renderPlayerList(onFieldListEl, onField, playerTimes, 'Sub Out', 'on-field-card');
-    renderPlayerList(benchListEl, bench, playerTimes, 'Sub In', 'bench-card');
+    renderPlayerList(onFieldListEl, onField, playerTimes, stintTimes, 'Sub Out', 'on-field-card');
+    renderPlayerList(benchListEl, bench, playerTimes, null, 'Sub In', 'bench-card');
     
     // Admin Roster
     rosterListEl.innerHTML = '';
@@ -210,15 +248,23 @@ function render() {
     }
 }
 
-function renderPlayerList(container, players, times, btnText, cardClass) {
+function renderPlayerList(container, players, times, stintTimes, btnText, cardClass) {
     container.innerHTML = '';
     players.forEach(p => {
         const div = document.createElement('div');
         div.className = `player-card ${cardClass}`;
         const isRunning = state.gameRunning && p.onField;
+        
+        let stintHtml = '';
+        if (stintTimes) {
+            stintHtml = `<span class="player-time stint-time" title="Current Stint">${formatTime(stintTimes[p.id])}</span>`;
+            div.classList.add('has-stint');
+        }
+
         div.innerHTML = `
             <span class="player-name">${p.name}</span>
-            <span class="player-time ${isRunning ? 'pulsing' : ''}">${formatTime(times[p.id])}</span>
+            <span class="player-time ${isRunning ? 'pulsing' : ''}" title="Total Time">${formatTime(times[p.id])}</span>
+            ${stintHtml}
             <button class="sub-btn ${p.onField ? 'btn-secondary' : 'btn-primary'}" data-id="${p.id}">${btnText}</button>
         `;
         container.appendChild(div);
