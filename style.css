@@ -36,11 +36,28 @@ section {
     text-align: center;
 }
 
+.clock-display {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: baseline;
+    margin-bottom: 15px;
+}
+
 #stopwatch {
+    grid-column: 2;
     font-size: 4rem;
     font-weight: bold;
     font-family: monospace;
-    margin-bottom: 10px;
+}
+
+#shortest-stint {
+    grid-column: 3;
+    justify-self: start;
+    padding-left: 15px;
+    font-size: 1.5rem;
+    font-weight: bold;
+    font-family: monospace;
+    color: var(--secondary);
 }
 
 .clock-controls {

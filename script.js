@@ -83,6 +83,7 @@ function formatTime(ms) {
 
 // DOM Elements
 const stopwatchEl = document.getElementById('stopwatch');
+const shortestStintEl = document.getElementById('shortest-stint');
 const toggleBtn = document.getElementById('toggle-btn');
 const onFieldListEl = document.getElementById('on-field-list');
 const onFieldHeaderEl = document.getElementById('on-field-header');
@@ -207,9 +208,17 @@ function render() {
     toggleBtn.textContent = state.gameRunning ? 'Pause' : 'Start';
     toggleBtn.className = state.gameRunning ? 'btn-secondary' : 'btn-primary';
 
+    // Calculate Shortest Stint
+    const onFieldTotal = state.roster.filter(p => p.onField && p.isPresent);
+    if (onFieldTotal.length > 0) {
+        const minStint = Math.min(...onFieldTotal.map(p => stintTimes[p.id]));
+        shortestStintEl.textContent = formatTime(minStint);
+    } else {
+        shortestStintEl.textContent = '--:--';
+    }
+
     // Sort Players
-    const onField = state.roster.filter(p => p.onField && p.isPresent)
-        .sort((a, b) => stintTimes[b.id] - stintTimes[a.id]); // Longest stint at top
+    const onField = [...onFieldTotal].sort((a, b) => stintTimes[b.id] - stintTimes[a.id]); // Longest stint at top
     const bench = state.roster.filter(p => !p.onField && p.isPresent)
         .sort((a, b) => playerTimes[a.id] - playerTimes[b.id]); // Least played at top
 
