@@ -26,6 +26,7 @@
             <div class="player-list-container on-field-grid">
                 <div id="on-field-header" class="player-card list-header hidden">
                     <span class="col-label">Name</span>
+                    <span class="col-label">Pos</span>
                     <span class="col-label">Total</span>
                     <span class="col-label">Stint</span>
                     <span class="col-label"></span>
@@ -35,6 +36,13 @@
                 </div>
             </div>
         </section>
+
+        <!-- Position Selection Modal -->
+        <dialog id="position-dialog">
+            <h3>Select Position</h3>
+            <div id="position-options"></div>
+            <button id="close-dialog" class="btn-link">Cancel</button>
+        </dialog>
 
         <!-- Section 3: Bench -->
         <section id="bench-section">

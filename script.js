@@ -1,10 +1,12 @@
 // State Management
+const POSITIONS = ['Unassigned', 'Goalie', 'Defense', 'Midfield', 'Offense'];
+
 let state = {
     gameRunning: false,
     accumulatedGameTime: 0,
     lastSyncTimestamp: null,
     lastUpdate: Date.now(),
-    roster: [] // { id, name, onField: false, totalPlayTime: 0, currentStintTime: 0, lastSubOutGameTime: 0, isPresent: true }
+    roster: [] // { id, name, onField: false, totalPlayTime: 0, currentStintTime: 0, lastSubOutGameTime: 0, isPresent: true, position: 'Unassigned' }
 };
 
 const STORAGE_KEY = 'subtracker_state';
@@ -23,6 +25,7 @@ function loadState() {
                 p.currentStintTime = 0;
                 p.lastSubOutGameTime = 0;
                 p.onField = false;
+                p.position = 'Unassigned';
             });
         }
         state = parsed;
@@ -31,6 +34,7 @@ function loadState() {
             if (p.isPresent === undefined) p.isPresent = true;
             if (p.currentStintTime === undefined) p.currentStintTime = 0;
             if (p.lastSubOutGameTime === undefined) p.lastSubOutGameTime = 0;
+            if (p.position === undefined) p.position = 'Unassigned';
         });
     }
 }
@@ -265,13 +269,16 @@ function renderPlayerList(container, players, times, stintTimes, btnText, cardCl
         const isRunning = state.gameRunning && p.onField;
         
         let stintHtml = '';
+        let posHtml = '';
         if (stintTimes) {
             stintHtml = `<span class="player-time stint-time" title="Current Stint">${formatTime(stintTimes[p.id])}</span>`;
+            posHtml = `<div class="pos-btn" data-id="${p.id}">${p.position || 'Unassigned'}</div>`;
             div.classList.add('has-stint');
         }
 
         div.innerHTML = `
             <span class="player-name">${p.name}</span>
+            ${posHtml}
             <span class="player-time ${isRunning ? 'pulsing' : ''}" title="Total Time">${formatTime(times[p.id])}</span>
             ${stintHtml}
             <button class="sub-btn ${p.onField ? 'btn-secondary' : 'btn-primary'}" data-id="${p.id}">${btnText}</button>
@@ -279,6 +286,84 @@ function renderPlayerList(container, players, times, stintTimes, btnText, cardCl
         container.appendChild(div);
     });
 }
+
+// Position Management Logic
+const positionDialog = document.getElementById('position-dialog');
+const positionOptions = document.getElementById('position-options');
+const closeDialog = document.getElementById('close-dialog');
+let longPressTimer;
+let currentPosPlayerId = null;
+
+function cyclePosition(id) {
+    const player = state.roster.find(p => p.id === id);
+    if (player) {
+        const currentIndex = POSITIONS.indexOf(player.position || 'Unassigned');
+        const nextIndex = (currentIndex + 1) % POSITIONS.length;
+        player.position = POSITIONS[nextIndex];
+        saveState();
+        render();
+    }
+}
+
+function openPositionDialog(id) {
+    currentPosPlayerId = id;
+    const player = state.roster.find(p => p.id === id);
+    positionOptions.innerHTML = '';
+    POSITIONS.forEach(pos => {
+        const btn = document.createElement('button');
+        btn.textContent = pos;
+        if (player.position === pos) btn.style.borderColor = 'var(--primary)';
+        btn.onclick = () => {
+            player.position = pos;
+            saveState();
+            render();
+            positionDialog.close();
+        };
+        positionOptions.appendChild(btn);
+    });
+    positionDialog.showModal();
+}
+
+closeDialog.onclick = () => positionDialog.close();
+
+// Event Listeners for Long Press
+document.addEventListener('mousedown', (e) => {
+    if (e.target.classList.contains('pos-btn')) {
+        const id = e.target.dataset.id;
+        longPressTimer = setTimeout(() => {
+            longPressTimer = null;
+            openPositionDialog(id);
+        }, 500);
+    }
+});
+
+document.addEventListener('mouseup', (e) => {
+    if (longPressTimer) {
+        clearTimeout(longPressTimer);
+        if (e.target.classList.contains('pos-btn')) {
+            cyclePosition(e.target.dataset.id);
+        }
+    }
+});
+
+document.addEventListener('touchstart', (e) => {
+    if (e.target.classList.contains('pos-btn')) {
+        const id = e.target.dataset.id;
+        longPressTimer = setTimeout(() => {
+            longPressTimer = null;
+            openPositionDialog(id);
+        }, 500);
+    }
+}, { passive: true });
+
+document.addEventListener('touchend', (e) => {
+    if (longPressTimer) {
+        clearTimeout(longPressTimer);
+        if (e.target.classList.contains('pos-btn')) {
+            cyclePosition(e.target.dataset.id);
+        }
+    }
+});
 
 // Event Listeners
 toggleBtn.addEventListener('click', toggleClock);
