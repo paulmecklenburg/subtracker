@@ -99,8 +99,23 @@ const playerNameInput = document.getElementById('player-name');
 const addBtn = document.getElementById('add-btn');
 const resetBtn = document.getElementById('reset-btn');
 const rewindBtn = document.getElementById('rewind-btn');
+const advanceAllBtn = document.getElementById('advance-all-btn');
 
 // Actions
+function advanceAllPositions() {
+    if (confirm('Advance all on-field positions? (D→M, M→O, O→-)')) {
+        state.roster.forEach(p => {
+            if (p.onField && p.isPresent) {
+                if (p.position === 'Defense') p.position = 'Midfield';
+                else if (p.position === 'Midfield') p.position = 'Offense';
+                else if (p.position === 'Offense') p.position = 'Unassigned';
+            }
+        });
+        saveState();
+        render();
+    }
+}
+
 function toggleClock() {
     if (state.gameRunning) {
         syncState();
@@ -386,6 +401,7 @@ rewindBtn.addEventListener('click', rewind);
 addBtn.addEventListener('click', addPlayer);
 resetBtn.addEventListener('click', resetGame);
 adminToggle.addEventListener('click', () => adminContent.classList.toggle('hidden'));
+advanceAllBtn.addEventListener('click', advanceAllPositions);
 
 document.addEventListener('click', (e) => {
     if (e.target.classList.contains('sub-btn')) {
