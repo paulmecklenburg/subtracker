@@ -262,6 +262,14 @@ function render() {
 }
 
 function renderPlayerList(container, players, times, stintTimes, btnText, cardClass) {
+    const POS_MAP = {
+        'Unassigned': { short: '-', class: 'pos-u' },
+        'Goalie': { short: 'G', class: 'pos-g' },
+        'Defense': { short: 'D', class: 'pos-d' },
+        'Midfield': { short: 'M', class: 'pos-m' },
+        'Offense': { short: 'O', class: 'pos-o' }
+    };
+
     container.innerHTML = '';
     players.forEach(p => {
         const div = document.createElement('div');
@@ -271,8 +279,9 @@ function renderPlayerList(container, players, times, stintTimes, btnText, cardCl
         let stintHtml = '';
         let posHtml = '';
         if (stintTimes) {
+            const posData = POS_MAP[p.position || 'Unassigned'];
             stintHtml = `<span class="player-time stint-time" title="Current Stint">${formatTime(stintTimes[p.id])}</span>`;
-            posHtml = `<div class="pos-btn" data-id="${p.id}">${p.position || 'Unassigned'}</div>`;
+            posHtml = `<div class="pos-btn ${posData.class}" data-id="${p.id}">${posData.short}</div>`;
             div.classList.add('has-stint');
         }
 
@@ -311,7 +320,13 @@ function openPositionDialog(id) {
     positionOptions.innerHTML = '';
     POSITIONS.forEach(pos => {
         const btn = document.createElement('button');
-        btn.textContent = pos;
+        // Bold the first character (or "---" for unassigned)
+        if (pos === 'Unassigned') {
+            btn.innerHTML = `<strong>-</strong> Unassigned`;
+        } else {
+            btn.innerHTML = `<strong>${pos.charAt(0)}</strong> ${pos.slice(1)}`;
+        }
+        
         if (player.position === pos) btn.style.borderColor = 'var(--primary)';
         btn.onclick = () => {
             player.position = pos;
