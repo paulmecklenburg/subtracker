@@ -187,10 +187,11 @@ function subPlayer(id) {
     if (player && player.isPresent) {
         const nextOnField = !player.onField;
         if (nextOnField) {
-            // Subbing in: reset stint time if enough time passed on bench
+            // Subbing in: reset stint time and position if enough time passed on bench
             const benchDuration = state.accumulatedGameTime - player.lastSubOutGameTime;
             if (benchDuration >= 30000) {
                 player.currentStintTime = 0;
+                player.position = 'Unassigned';
             }
         } else {
             // Subbing out: record game time
