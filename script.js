@@ -238,7 +238,12 @@ function render() {
     }
 
     // Sort Players
-    const onField = [...onFieldTotal].sort((a, b) => stintTimes[b.id] - stintTimes[a.id]); // Longest stint at top
+    const onField = [...onFieldTotal].sort((a, b) => {
+        const posA = POSITIONS.indexOf(a.position || 'Unassigned');
+        const posB = POSITIONS.indexOf(b.position || 'Unassigned');
+        if (posA !== posB) return posA - posB;
+        return stintTimes[b.id] - stintTimes[a.id]; // Longest stint at top
+    });
     const bench = state.roster.filter(p => !p.onField && p.isPresent)
         .sort((a, b) => playerTimes[a.id] - playerTimes[b.id]); // Least played at top
 
