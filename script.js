@@ -101,15 +101,36 @@ const resetBtn = document.getElementById('reset-btn');
 const rewindBtn = document.getElementById('rewind-btn');
 const advanceAllBtn = document.getElementById('advance-all-btn');
 
+function performActionAndFlashIfMoved(action) {
+    const { stintTimes } = getLiveTimes();
+    const oldOrder = getSortedOnField(stintTimes).map(p => p.id);
+    
+    action();
+    
+    const newOrder = getSortedOnField(stintTimes).map(p => p.id);
+    
+    // Only flash if the list order actually changed
+    if (JSON.stringify(oldOrder) !== JSON.stringify(newOrder)) {
+        newOrder.forEach((id, index) => {
+            if (oldOrder[index] !== id) {
+                const player = state.roster.find(r => r.id === id);
+                if (player) player.needsFlash = true;
+            }
+        });
+    }
+}
+
 // Actions
 function advanceAllPositions() {
     if (confirm('Advance all on-field positions? (D→M, M→O, O→-)')) {
-        state.roster.forEach(p => {
-            if (p.onField && p.isPresent) {
-                if (p.position === 'Defense') p.position = 'Midfield';
-                else if (p.position === 'Midfield') p.position = 'Offense';
-                else if (p.position === 'Offense') p.position = 'Unassigned';
-            }
+        performActionAndFlashIfMoved(() => {
+            state.roster.forEach(p => {
+                if (p.onField && p.isPresent) {
+                    if (p.position === 'Defense') p.position = 'Midfield';
+                    else if (p.position === 'Midfield') p.position = 'Offense';
+                    else if (p.position === 'Offense') p.position = 'Unassigned';
+                }
+            });
         });
         saveState();
         render();
@@ -213,10 +234,26 @@ function resetGame() {
             p.currentStintTime = 0;
             p.lastSubOutGameTime = 0;
             p.onField = false;
+            p.position = 'Unassigned';
         });
         saveState();
         render();
     }
+}
+
+function getSortedOnField(stintTimes) {
+    return state.roster.filter(p => p.onField && p.isPresent)
+        .sort((a, b) => {
+            const posA = POSITIONS.indexOf(a.position || 'Unassigned');
+            const posB = POSITIONS.indexOf(b.position || 'Unassigned');
+            if (posA !== posB) return posA - posB;
+            return stintTimes[b.id] - stintTimes[a.id];
+        });
+}
+
+function getSortedBench(playerTimes) {
+    return state.roster.filter(p => !p.onField && p.isPresent)
+        .sort((a, b) => playerTimes[a.id] - playerTimes[b.id]);
 }
 
 // Rendering
@@ -238,14 +275,8 @@ function render() {
     }
 
     // Sort Players
-    const onField = [...onFieldTotal].sort((a, b) => {
-        const posA = POSITIONS.indexOf(a.position || 'Unassigned');
-        const posB = POSITIONS.indexOf(b.position || 'Unassigned');
-        if (posA !== posB) return posA - posB;
-        return stintTimes[b.id] - stintTimes[a.id]; // Longest stint at top
-    });
-    const bench = state.roster.filter(p => !p.onField && p.isPresent)
-        .sort((a, b) => playerTimes[a.id] - playerTimes[b.id]); // Least played at top
+    const onField = getSortedOnField(stintTimes);
+    const bench = getSortedBench(playerTimes);
 
     // Update Headers visibility and structure
     if (onField.length > 0) {
@@ -295,6 +326,12 @@ function renderPlayerList(container, players, times, stintTimes, btnText, cardCl
     players.forEach(p => {
         const div = document.createElement('div');
         div.className = `player-card ${cardClass}`;
+        
+        if (p.needsFlash) {
+            div.classList.add('flash-update');
+            delete p.needsFlash;
+        }
+
         const isRunning = state.gameRunning && p.onField;
         
         let stintHtml = '';
@@ -327,9 +364,11 @@ let currentPosPlayerId = null;
 function cyclePosition(id) {
     const player = state.roster.find(p => p.id === id);
     if (player) {
-        const currentIndex = POSITIONS.indexOf(player.position || 'Unassigned');
-        const nextIndex = (currentIndex + 1) % POSITIONS.length;
-        player.position = POSITIONS[nextIndex];
+        performActionAndFlashIfMoved(() => {
+            const currentIndex = POSITIONS.indexOf(player.position || 'Unassigned');
+            const nextIndex = (currentIndex + 1) % POSITIONS.length;
+            player.position = POSITIONS[nextIndex];
+        });
         saveState();
         render();
     }
@@ -350,7 +389,9 @@ function openPositionDialog(id) {
         
         if (player.position === pos) btn.style.borderColor = 'var(--primary)';
         btn.onclick = () => {
-            player.position = pos;
+            performActionAndFlashIfMoved(() => {
+                player.position = pos;
+            });
             saveState();
             render();
             positionDialog.close();
@@ -384,16 +425,18 @@ document.addEventListener('mouseup', (e) => {
 
 document.addEventListener('touchstart', (e) => {
     if (e.target.classList.contains('pos-btn')) {
+        e.preventDefault();
         const id = e.target.dataset.id;
         longPressTimer = setTimeout(() => {
             longPressTimer = null;
             openPositionDialog(id);
         }, 500);
     }
-}, { passive: true });
+}, { passive: false });
 
 document.addEventListener('touchend', (e) => {
     if (longPressTimer) {
+        e.preventDefault();
         clearTimeout(longPressTimer);
         if (e.target.classList.contains('pos-btn')) {
             cyclePosition(e.target.dataset.id);

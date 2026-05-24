@@ -197,6 +197,15 @@ h2 {
     background-color: #7f8c8d;
 }
 
+@keyframes flash-glow {
+    0% { background-color: #fff9c4; border-color: #f1c40f; }
+    100% { }
+}
+
+.flash-update {
+    animation: flash-glow 0.8s ease-out;
+}
+
 .pulsing {
     color: #1a7f43;
     animation: pulse 1.5s infinite;
