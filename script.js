@@ -358,8 +358,9 @@ function renderPlayerList(container, players, times, stintTimes, btnText, cardCl
 const positionDialog = document.getElementById('position-dialog');
 const positionOptions = document.getElementById('position-options');
 const closeDialog = document.getElementById('close-dialog');
-let longPressTimer;
+let longPressTimer = null;
 let currentPosPlayerId = null;
+let isLongPress = false;
 
 function cyclePosition(id) {
     const player = state.roster.find(p => p.id === id);
@@ -403,46 +404,29 @@ function openPositionDialog(id) {
 
 closeDialog.onclick = () => positionDialog.close();
 
-// Event Listeners for Long Press
-document.addEventListener('mousedown', (e) => {
+// Event Listeners for Pointer (Unified Touch/Mouse)
+document.addEventListener('pointerdown', (e) => {
     if (e.target.classList.contains('pos-btn')) {
+        isLongPress = false;
         const id = e.target.dataset.id;
         longPressTimer = setTimeout(() => {
-            longPressTimer = null;
+            isLongPress = true;
             openPositionDialog(id);
-        }, 500);
+        }, 1000);
     }
 });
 
-document.addEventListener('mouseup', (e) => {
+function cancelLongPress() {
     if (longPressTimer) {
         clearTimeout(longPressTimer);
-        if (e.target.classList.contains('pos-btn')) {
-            cyclePosition(e.target.dataset.id);
-        }
+        longPressTimer = null;
     }
-});
+}
 
-document.addEventListener('touchstart', (e) => {
-    if (e.target.classList.contains('pos-btn')) {
-        e.preventDefault();
-        const id = e.target.dataset.id;
-        longPressTimer = setTimeout(() => {
-            longPressTimer = null;
-            openPositionDialog(id);
-        }, 500);
-    }
-}, { passive: false });
-
-document.addEventListener('touchend', (e) => {
-    if (longPressTimer) {
-        e.preventDefault();
-        clearTimeout(longPressTimer);
-        if (e.target.classList.contains('pos-btn')) {
-            cyclePosition(e.target.dataset.id);
-        }
-    }
-});
+document.addEventListener('pointerup', cancelLongPress);
+document.addEventListener('pointercancel', cancelLongPress);
+// Also cancel if the finger moves off the element significantly, though pointercancel often catches this
+document.addEventListener('pointerout', cancelLongPress);
 
 // Event Listeners
 toggleBtn.addEventListener('click', toggleClock);
@@ -453,6 +437,11 @@ adminToggle.addEventListener('click', () => adminContent.classList.toggle('hidde
 advanceAllBtn.addEventListener('click', advanceAllPositions);
 
 document.addEventListener('click', (e) => {
+    if (e.target.classList.contains('pos-btn')) {
+        // Ignore the click if it was the result of a long press
+        if (isLongPress) return;
+        cyclePosition(e.target.dataset.id);
+    }
     if (e.target.classList.contains('sub-btn')) {
         subPlayer(e.target.dataset.id);
     }
