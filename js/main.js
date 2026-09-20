@@ -1,0 +1,207 @@
+// App entry point: wires state logic to the UI. Loaded as ES module from index.html.
+import {
+    loadState, saveState, resetTimes, syncState, getLiveTimes, toggleClock,
+    togglePresence, subPlayer, adjustAllTimes, STEP_MS
+} from './state.js';
+import { createPlayer } from './state.js';
+import {
+    generateDefaultSubPlan, executeSubPlan, clearSubPlan, movePlayerInPlan,
+    getSortedOnField
+} from './plan.js';
+import { POSITIONS } from './positions.js';
+import {
+    render, initPositionDialog, redrawArrows,
+    isDragInProgress, bindStateRef, setPlanMoveHandler
+} from './ui.js';
+
+let state = loadState();
+bindStateRef(state);
+setPlanMoveHandler(onMoveInPlan);
+
+const els = {
+    toggleBtn: document.getElementById('toggle-btn'),
+    rewindBtn: document.getElementById('rewind-btn'),
+    fastForwardBtn: document.getElementById('fast-forward-btn'),
+    addBtn: document.getElementById('add-btn'),
+    resetBtn: document.getElementById('reset-btn'),
+    adminToggle: document.getElementById('admin-toggle'),
+    adminContent: document.getElementById('admin-content'),
+    playerNameInput: document.getElementById('player-name'),
+    planHeader: document.getElementById('plan-header'),
+    planExecuteBtn: document.getElementById('plan-execute-btn'),
+    planResetBtn: document.getElementById('plan-reset-btn'),
+    planClearBtn: document.getElementById('plan-clear-btn')
+};
+
+function persist() {
+    saveState(state);
+}
+
+function rerender() {
+    render(state);
+}
+
+// --- Actions ---
+
+function onToggleClock() {
+    toggleClock(state);
+    persist();
+    rerender();
+}
+
+function onRewind() {
+    syncState(state);
+    adjustAllTimes(state, -STEP_MS);
+    persist();
+    rerender();
+}
+
+function onFastForward() {
+    syncState(state);
+    adjustAllTimes(state, STEP_MS);
+    persist();
+    rerender();
+}
+
+function onAddPlayer() {
+    const name = els.playerNameInput.value.trim();
+    if (!name) return;
+    state.roster.push(createPlayer(name, state.accumulatedGameTime));
+    els.playerNameInput.value = '';
+    persist();
+    rerender();
+}
+
+function onRemovePlayer(id) {
+    if (!confirm('Remove player from roster?')) return;
+    state.roster = state.roster.filter(p => p.id !== id);
+    if (state.subPlan && state.subPlan[id] !== undefined) delete state.subPlan[id];
+    persist();
+    rerender();
+}
+
+function onSubPlayer(id) {
+    subPlayer(state, id);
+    persist();
+    rerender();
+}
+
+function onResetGame() {
+    if (!confirm('Reset game clock and all player times? (Roster will be kept)')) return;
+    resetTimes(state);
+    persist();
+    rerender();
+}
+
+// Flash players whose on-field ordering changed as a result of `action`.
+function withReorderFlash(action) {
+    const { stintTimes } = getLiveTimes(state);
+    const before = getSortedOnField(state, stintTimes).map(p => p.id);
+
+    action();
+
+    const after = getSortedOnField(state, stintTimes).map(p => p.id);
+    if (JSON.stringify(before) !== JSON.stringify(after)) {
+        after.forEach((id, index) => {
+            if (before[index] !== id) {
+                const player = state.roster.find(r => r.id === id);
+                if (player) player.needsFlash = true;
+            }
+        });
+    }
+}
+
+function onCyclePosition(id) {
+    const player = state.roster.find(p => p.id === id);
+    if (!player) return;
+    withReorderFlash(() => {
+        const nextIndex = (POSITIONS.indexOf(player.position || 'Unassigned') + 1) % POSITIONS.length;
+        player.position = POSITIONS[nextIndex];
+    });
+    persist();
+    rerender();
+}
+
+function onSetPosition(id, pos) {
+    const player = state.roster.find(p => p.id === id);
+    if (!player) return;
+    withReorderFlash(() => {
+        player.position = pos;
+    });
+    persist();
+    rerender();
+}
+
+function onTogglePlanExpanded() {
+    state.planExpanded = !state.planExpanded;
+    if (state.planExpanded && !state.subPlan) {
+        generateDefaultSubPlan(state);
+    }
+    persist();
+    rerender();
+}
+
+function onMoveInPlan(playerId, newPos) {
+    movePlayerInPlan(state, playerId, newPos);
+    persist();
+    rerender();
+}
+
+// --- Event wiring ---
+
+els.toggleBtn.addEventListener('click', onToggleClock);
+els.rewindBtn.addEventListener('click', onRewind);
+els.fastForwardBtn.addEventListener('click', onFastForward);
+els.addBtn.addEventListener('click', onAddPlayer);
+els.playerNameInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') onAddPlayer();
+});
+els.resetBtn.addEventListener('click', onResetGame);
+els.adminToggle.addEventListener('click', () => els.adminContent.classList.toggle('hidden'));
+
+if (els.planHeader) els.planHeader.addEventListener('click', onTogglePlanExpanded);
+if (els.planExecuteBtn) els.planExecuteBtn.addEventListener('click', () => {
+    executeSubPlan(state);
+    persist();
+    rerender();
+});
+if (els.planResetBtn) els.planResetBtn.addEventListener('click', () => {
+    generateDefaultSubPlan(state);
+    persist();
+    rerender();
+});
+if (els.planClearBtn) els.planClearBtn.addEventListener('click', () => {
+    clearSubPlan(state);
+    persist();
+    rerender();
+});
+
+// Delegated clicks for dynamically rendered buttons.
+document.addEventListener('click', (e) => {
+    if (e.target.classList.contains('sub-btn')) {
+        onSubPlayer(e.target.dataset.id);
+    } else if (e.target.classList.contains('remove-player-btn')) {
+        onRemovePlayer(e.target.dataset.id);
+    } else if (e.target.classList.contains('presence-checkbox')) {
+        togglePresence(state, e.target.dataset.id);
+        persist();
+        rerender();
+    }
+});
+
+initPositionDialog(onCyclePosition, onSetPosition);
+
+window.addEventListener('resize', () => {
+    if (state.planExpanded) redrawArrows(state);
+});
+window.addEventListener('scroll', () => {
+    if (state.planExpanded) redrawArrows(state);
+}, { passive: true });
+
+// --- Init ---
+
+rerender();
+setInterval(() => {
+    if (isDragInProgress()) return; // Don't rebuild DOM mid-drag
+    rerender();
+}, 1000);
