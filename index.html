@@ -21,6 +21,18 @@
             </div>
         </section>
 
+        <!-- Queue Section: Shown when substitutions are staged -->
+        <section id="queue-section" class="queue-section hidden">
+            <div class="queue-info">
+                <span class="queue-title">📋 Substitution Queue</span>
+                <span id="queue-summary" class="queue-summary">0 In, 0 Out</span>
+            </div>
+            <div class="queue-controls">
+                <button id="execute-subs-btn" class="btn-execute">▶ Execute Subs</button>
+                <button id="cancel-queue-btn" class="btn-cancel">✕ Cancel</button>
+            </div>
+        </section>
+
         <!-- Section 2: On Field -->
         <section id="on-field-section">
             <h2>On Field</h2>
@@ -30,7 +42,7 @@
                     <span class="col-label">Pos</span>
                     <span class="col-label">Total</span>
                     <span class="col-label">Stint</span>
-                    <button id="advance-all-btn" class="btn-advance" title="Advance All Positions">» All</button>
+                    <button id="auto-queue-btn" class="btn-advance" title="Queue Rotation (Bench→D→M→O→Bench)">⚡ Rotate</button>
                 </div>
                 <div id="on-field-list" class="player-list">
                     <!-- Players will be injected here -->

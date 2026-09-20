@@ -222,6 +222,126 @@ h2 {
     background-color: #7f8c8d;
 }
 
+/* Queue Section */
+.queue-section {
+    background: #fff8e1;
+    border: 2px solid #f1c40f;
+    border-radius: 8px;
+    padding: 8px 12px;
+    margin-bottom: 10px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+}
+
+.queue-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.queue-title {
+    font-weight: bold;
+    font-size: 0.9rem;
+    color: #b7791f;
+}
+
+.queue-summary {
+    font-size: 0.75rem;
+    color: #555;
+    font-weight: 500;
+}
+
+.queue-controls {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    flex-shrink: 0;
+}
+
+.btn-execute {
+    background-color: var(--primary);
+    color: white;
+    padding: 8px 12px;
+    font-size: 0.85rem;
+    border-radius: 6px;
+    box-shadow: 0 1px 3px rgba(46, 204, 113, 0.3);
+}
+
+.btn-execute:hover {
+    background-color: #27ae60;
+}
+
+.btn-cancel {
+    background-color: var(--secondary);
+    color: white;
+    padding: 8px 10px;
+    font-size: 0.85rem;
+    border-radius: 6px;
+}
+
+.btn-cancel:hover {
+    background-color: #7f8c8d;
+}
+
+.pos-container {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.queue-target-badge {
+    padding: 2px 4px;
+    font-size: 0.75rem;
+    font-weight: bold;
+    color: white;
+    border-radius: 4px;
+    cursor: pointer;
+    text-align: center;
+    min-width: 24px;
+    user-select: none;
+    -webkit-user-select: none;
+    text-shadow: 0 1px 1px rgba(0,0,0,0.2);
+    display: inline-block;
+    vertical-align: middle;
+    white-space: nowrap;
+    line-height: normal;
+}
+
+.queue-badge-out {
+    background-color: #e74c3c;
+}
+
+.player-name .queue-target-badge {
+    margin-left: 6px;
+    flex-shrink: 0;
+}
+
+.btn-queued-out {
+    background-color: #c0392b;
+    color: white;
+}
+
+.btn-queued-in {
+    background-color: #2980b9;
+    color: white;
+}
+
+.queued-out-card {
+    background: #fff5f5 !important;
+    border-left-color: var(--danger) !important;
+}
+
+.queued-in-card {
+    background: #f0f7ff !important;
+    border-left-color: #2980b9 !important;
+}
+
+.queued-shift-card {
+    background: #fcfbf4 !important;
+}
+
 @keyframes flash-glow {
     0% { background-color: #fff9c4; border-color: #f1c40f; }
     100% { }
