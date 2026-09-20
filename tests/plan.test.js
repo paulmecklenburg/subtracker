@@ -105,6 +105,33 @@ test('generateDefaultSubPlan with positions: offense out, bench to defense, shif
     assert.equal(byName['Goal'], 'Goalie');
 });
 
+test('generateDefaultSubPlan with positions: preserves line counts when fewer subs than line size', () => {
+    const state = setup([
+        ['Off1', { onField: true, position: 'Offense', currentStintTime: 50000 }],
+        ['Off2', { onField: true, position: 'Offense', currentStintTime: 40000 }],
+        ['Mid1', { onField: true, position: 'Midfield', currentStintTime: 30000 }],
+        ['Mid2', { onField: true, position: 'Midfield', currentStintTime: 20000 }],
+        ['Def1', { onField: true, position: 'Defense', currentStintTime: 25000 }],
+        ['Def2', { onField: true, position: 'Defense', currentStintTime: 15000 }],
+        ['Goal', { onField: true, position: 'Goalie', currentStintTime: 10000 }],
+        ['Bench1', { onField: false, lastSubOutGameTime: 0 }]
+    ]);
+    state.accumulatedGameTime = 50000;
+    generateDefaultSubPlan(state);
+    const byName = Object.fromEntries(state.roster.map(p => [p.name, state.subPlan[p.id]]));
+    // 1 sub: Off1 (longest stint) goes to bench, Bench1 goes to Defense
+    assert.equal(byName['Off1'], BENCH);
+    assert.equal(byName['Off2'], 'Offense'); // stays on Offense
+    assert.equal(byName['Bench1'], 'Defense'); // bench enters Defense
+    // Exactly 1 shifts from Midfield -> Offense (Mid1, longest stint)
+    assert.equal(byName['Mid1'], 'Offense');
+    assert.equal(byName['Mid2'], 'Midfield'); // stays on Midfield
+    // Exactly 1 shifts from Defense -> Midfield (Def1, longest stint)
+    assert.equal(byName['Def1'], 'Midfield');
+    assert.equal(byName['Def2'], 'Defense'); // stays on Defense
+    assert.equal(byName['Goal'], 'Goalie');
+});
+
 test('movePlayerInPlan creates plan lazily covering all present players', () => {
     const state = setup([
         ['A', { onField: true, position: 'Defense' }],

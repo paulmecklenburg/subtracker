@@ -24,7 +24,8 @@ const els = {
     planContent: $('plan-content'),
     planToggleIcon: $('plan-toggle-icon'),
     planGrid: $('plan-grid'),
-    planArrowsSvg: $('plan-arrows-svg')
+    planArrowsSvg: $('plan-arrows-svg'),
+    planArrowsPaths: $('plan-arrows-paths')
 };
 
 export function isDragInProgress() {
@@ -41,7 +42,7 @@ export function getPlanRows(state) {
             { id: 'Midfield', label: 'Midfield', class: 'pos-m' },
             { id: 'Offense', label: 'Offense', class: 'pos-o' }
         ];
-        if (state.roster.some(p => p.onField && p.isPresent && p.position === 'Unassigned')) {
+        if (state.roster.some(p => p.isPresent && (getCurrentSlot(p) === 'Unassigned' || getPlannedSlot(state, p) === 'Unassigned'))) {
             rows.push({ id: 'Unassigned', label: 'Unassigned', class: 'pos-u' });
         }
         rows.push({ id: BENCH, label: 'Bench', class: 'plan-pos-tag-bench' });
@@ -55,7 +56,7 @@ export function getPlanRows(state) {
 
 // --- Rendering ---
 
-export function render(state) {
+export function render(state, { updatePlanGrid = true } = {}) {
     const { gameTime, playerTimes, stintTimes, benchTimes, goalieTimes } = getLiveTimes(state);
 
     els.stopwatch.textContent = formatTime(gameTime);
@@ -80,27 +81,29 @@ export function render(state) {
 
     renderPlayerList(els.onFieldList, state, onField, playerTimes, stintTimes, 'on-field-card', goalieTimes);
     renderPlayerList(els.benchList, state, bench, playerTimes, benchTimes, 'bench-card', goalieTimes);
-    renderPlan(state);
+    renderPlan(state, updatePlanGrid);
 
-    // Admin roster
-    els.rosterList.innerHTML = '';
-    state.roster.forEach(p => {
-        const li = document.createElement('li');
-        li.innerHTML = `
-            <span>${escapeHtml(p.name)}</span>
-            <div class="roster-actions">
-                <input type="checkbox" class="presence-checkbox" data-id="${p.id}" ${p.isPresent ? 'checked' : ''}>
-                <button class="remove-player-btn" data-id="${p.id}">✕</button>
-            </div>
-        `;
-        els.rosterList.appendChild(li);
-    });
+    // Admin roster (only rebuild when structure changes, not on clock ticks)
+    if (updatePlanGrid) {
+        els.rosterList.innerHTML = '';
+        state.roster.forEach(p => {
+            const li = document.createElement('li');
+            li.innerHTML = `
+                <span>${escapeHtml(p.name)}</span>
+                <div class="roster-actions">
+                    <input type="checkbox" class="presence-checkbox" data-id="${p.id}" ${p.isPresent ? 'checked' : ''}>
+                    <button class="remove-player-btn" data-id="${p.id}">✕</button>
+                </div>
+            `;
+            els.rosterList.appendChild(li);
+        });
 
-    if (state.roster.length === 0) {
-        els.adminContent.classList.remove('hidden');
-        els.adminToggle.classList.add('hidden');
-    } else {
-        els.adminToggle.classList.remove('hidden');
+        if (state.roster.length === 0) {
+            els.adminContent.classList.remove('hidden');
+            els.adminToggle.classList.add('hidden');
+        } else {
+            els.adminToggle.classList.remove('hidden');
+        }
     }
 }
 
@@ -158,7 +161,7 @@ function renderPlayerList(container, state, players, times, secondaryTimes, card
     });
 }
 
-function renderPlan(state) {
+function renderPlan(state, updatePlanGrid = true) {
     if (!els.planSection) return;
 
     els.planContent.classList.toggle('hidden', !state.planExpanded);
@@ -172,7 +175,7 @@ function renderPlan(state) {
         els.planBadge.classList.add('hidden');
     }
 
-    if (!state.planExpanded) return;
+    if (!state.planExpanded || !updatePlanGrid) return;
 
     const rows = getPlanRows(state);
     els.planGrid.innerHTML = '';
@@ -246,9 +249,14 @@ function drawPlanArrows(state) {
         pathsHtml += `<path d="M ${x1.toFixed(1)} ${y1.toFixed(1)} C ${(x1 + dx).toFixed(1)} ${y1.toFixed(1)}, ${(x2 - dx).toFixed(1)} ${y2.toFixed(1)}, ${x2.toFixed(1)} ${y2.toFixed(1)}" class="plan-arrow-path" stroke="${color}" marker-end="url(#arrow-${targetPos.toLowerCase()})"/>`;
     });
 
-    const defsEl = els.planArrowsSvg.querySelector('defs');
-    const defsHtml = defsEl ? defsEl.outerHTML : '';
-    els.planArrowsSvg.innerHTML = defsHtml + pathsHtml;
+    const pathsGroup = els.planArrowsPaths || els.planArrowsSvg.querySelector('#plan-arrows-paths');
+    if (pathsGroup) {
+        pathsGroup.innerHTML = pathsHtml;
+    } else {
+        const defsEl = els.planArrowsSvg.querySelector('defs');
+        const defsHtml = defsEl ? defsEl.outerHTML : '';
+        els.planArrowsSvg.innerHTML = defsHtml + pathsHtml;
+    }
 }
 
 export function redrawArrows(state) {
@@ -383,18 +391,32 @@ const dialog = {
 export function initPositionDialog(onCycle, onSet) {
     dialog.closeBtn.onclick = () => dialog.el.close();
 
+    let startX = 0;
+    let startY = 0;
+
     document.addEventListener('pointerdown', (e) => {
         if (!e.target.classList.contains('pos-btn')) return;
         dialog.wasLongPress = false;
+        startX = e.clientX;
+        startY = e.clientY;
         const id = e.target.dataset.id;
         dialog.timer = setTimeout(() => {
             dialog.wasLongPress = true;
             openPositionDialog(id, onSet);
-        }, 1000);
+        }, 800);
     });
 
-    // Cancel long press on any pointer release/move-out.
-    ['pointerup', 'pointercancel', 'pointerout'].forEach(evt =>
+    // Cancel long press only if movement exceeds jitter threshold (10px).
+    document.addEventListener('pointermove', (e) => {
+        if (dialog.timer) {
+            const dist = Math.hypot(e.clientX - startX, e.clientY - startY);
+            if (dist > 10) {
+                cancelLongPress();
+            }
+        }
+    });
+
+    ['pointerup', 'pointercancel'].forEach(evt =>
         document.addEventListener(evt, cancelLongPress)
     );
 
@@ -431,4 +453,15 @@ function openPositionDialog(id, onSet) {
         dialog.options.appendChild(btn);
     });
     dialog.el.showModal();
+}
+
+export function initPlanResizeObserver(state) {
+    if (typeof ResizeObserver !== 'undefined' && els.planGrid) {
+        const ro = new ResizeObserver(() => {
+            if (state.planExpanded) {
+                redrawArrows(state);
+            }
+        });
+        ro.observe(els.planGrid);
+    }
 }

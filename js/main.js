@@ -10,7 +10,7 @@ import {
 } from './plan.js';
 import { POSITIONS } from './positions.js';
 import {
-    render, initPositionDialog, redrawArrows,
+    render, initPositionDialog, redrawArrows, initPlanResizeObserver,
     isDragInProgress, bindStateRef, setPlanMoveHandler
 } from './ui.js';
 
@@ -66,6 +66,7 @@ function onFastForward() {
 function onAddPlayer() {
     const name = els.playerNameInput.value.trim();
     if (!name) return;
+    syncState(state);
     state.roster.push(createPlayer(name, state.accumulatedGameTime));
     els.playerNameInput.value = '';
     persist();
@@ -118,8 +119,8 @@ function onCyclePosition(id) {
         const nextIndex = (POSITIONS.indexOf(player.position || 'Unassigned') + 1) % POSITIONS.length;
         player.position = POSITIONS[nextIndex];
     });
-    persist();
     rerender();
+    persist();
 }
 
 function onSetPosition(id, pos) {
@@ -128,8 +129,8 @@ function onSetPosition(id, pos) {
     withReorderFlash(() => {
         player.position = pos;
     });
-    persist();
     rerender();
+    persist();
 }
 
 function onTogglePlanExpanded() {
@@ -190,6 +191,7 @@ document.addEventListener('click', (e) => {
 });
 
 initPositionDialog(onCyclePosition, onSetPosition);
+initPlanResizeObserver(state);
 
 window.addEventListener('resize', () => {
     if (state.planExpanded) redrawArrows(state);
@@ -202,6 +204,6 @@ window.addEventListener('scroll', () => {
 
 rerender();
 setInterval(() => {
-    if (isDragInProgress()) return; // Don't rebuild DOM mid-drag
-    rerender();
+    if (!state.gameRunning || isDragInProgress()) return;
+    render(state, { updatePlanGrid: false });
 }, 1000);

@@ -126,6 +126,7 @@ h2 {
 .pos-d { background-color: #2980b9; } /* Blue */
 .pos-m { background-color: #27ae60; } /* Green */
 .pos-o { background-color: #c0392b; } /* Red */
+.pos-bench { background-color: #e74c3c; } /* Bench Red */
 
 .on-field-card { 
     border-left-color: var(--primary); 

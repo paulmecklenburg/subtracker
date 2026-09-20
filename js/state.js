@@ -78,7 +78,16 @@ export function loadState(storage = localStorage, now = Date.now()) {
 export function saveState(state, storage = localStorage, now = Date.now()) {
     try {
         state.lastUpdate = now;
-        storage.setItem('subtracker_state', JSON.stringify(state));
+        const clean = {
+            ...state,
+            roster: state.roster.map(p => {
+                if (!p.needsFlash) return p;
+                const copy = { ...p };
+                delete copy.needsFlash;
+                return copy;
+            })
+        };
+        storage.setItem('subtracker_state', JSON.stringify(clean));
     } catch {
         // Storage unavailable (private mode etc.): app still works in-memory.
     }

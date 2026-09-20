@@ -64,12 +64,18 @@ export function generateDefaultSubPlan(state) {
             subsIn.forEach(p => { plan[p.id] = 'Defense'; });
 
             // Field shifts: Defense -> Midfield, Midfield -> Offense (Goalie and Unassigned remain).
-            onField.forEach(p => {
-                if (subsOut.some(s => s.id === p.id)) return;
-                if (p.position === 'Goalie' || p.position === 'Unassigned') return;
-                if (p.position === 'Defense') plan[p.id] = 'Midfield';
-                else if (p.position === 'Midfield') plan[p.id] = 'Offense';
-            });
+            // Shift up to numSubs from Defense -> Midfield and Midfield -> Offense (longest stints first).
+            const defenseToShift = onField
+                .filter(p => p.position === 'Defense' && !subsOut.some(s => s.id === p.id))
+                .sort((a, b) => (stintTimes[b.id] || 0) - (stintTimes[a.id] || 0))
+                .slice(0, numSubs);
+            const midfieldToShift = onField
+                .filter(p => p.position === 'Midfield' && !subsOut.some(s => s.id === p.id))
+                .sort((a, b) => (stintTimes[b.id] || 0) - (stintTimes[a.id] || 0))
+                .slice(0, numSubs);
+
+            defenseToShift.forEach(p => { plan[p.id] = 'Midfield'; });
+            midfieldToShift.forEach(p => { plan[p.id] = 'Offense'; });
         } else {
             // Positions not actively in use: rotate onField <-> Bench.
             const numSubs = Math.min(onField.length, bench.length);

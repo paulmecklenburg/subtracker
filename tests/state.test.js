@@ -212,6 +212,19 @@ test('saveState/loadState round-trips', () => {
     assert.equal(loaded.roster[0].onField, true);
 });
 
+test('saveState strips transient needsFlash before serializing', () => {
+    const storage = fakeStorage();
+    const clock = fakeClock();
+    const state = createInitialState();
+    const player = makePlayer('A', { needsFlash: true });
+    state.roster = [player];
+    saveState(state, storage, clock.now());
+    const savedJson = storage.getItem('subtracker_state');
+    assert.equal(savedJson.includes('needsFlash'), false);
+    const loaded = loadState(storage, clock.now());
+    assert.equal(loaded.roster[0].needsFlash, undefined);
+});
+
 test('loadState: corrupted JSON falls back to fresh state', () => {
     const storage = fakeStorage();
     storage.setItem('subtracker_state', '{not json');
