@@ -6,7 +6,7 @@ let state = {
     accumulatedGameTime: 0,
     lastSyncTimestamp: null,
     lastUpdate: Date.now(),
-    roster: [] // { id, name, onField: false, totalPlayTime: 0, currentStintTime: 0, lastSubOutGameTime: 0, isPresent: true, position: 'Unassigned' }
+    roster: [] // { id, name, onField: false, totalPlayTime: 0, goaliePlayTime: 0, currentStintTime: 0, lastSubOutGameTime: 0, isPresent: true, position: 'Unassigned' }
 };
 
 const STORAGE_KEY = 'subtracker_state';
@@ -22,6 +22,7 @@ function loadState() {
             parsed.lastSyncTimestamp = null;
             parsed.roster.forEach(p => {
                 p.totalPlayTime = 0;
+                p.goaliePlayTime = 0;
                 p.currentStintTime = 0;
                 p.lastSubOutGameTime = 0;
                 p.onField = false;
@@ -34,6 +35,7 @@ function loadState() {
             if (p.isPresent === undefined) p.isPresent = true;
             if (p.currentStintTime === undefined) p.currentStintTime = 0;
             if (p.lastSubOutGameTime === undefined) p.lastSubOutGameTime = 0;
+            if (p.goaliePlayTime === undefined) p.goaliePlayTime = 0;
             if (p.position === undefined) p.position = 'Unassigned';
         });
     }
@@ -53,7 +55,13 @@ function getLiveTimes() {
     return {
         gameTime,
         playerTimes: state.roster.reduce((acc, p) => {
-            acc[p.id] = Math.max(0, p.totalPlayTime + (state.gameRunning && p.onField ? delta : 0));
+            const isOutfield = state.gameRunning && p.onField && p.position !== 'Goalie';
+            acc[p.id] = Math.max(0, p.totalPlayTime + (isOutfield ? delta : 0));
+            return acc;
+        }, {}),
+        goalieTimes: state.roster.reduce((acc, p) => {
+            const isGoalie = state.gameRunning && p.onField && p.position === 'Goalie';
+            acc[p.id] = Math.max(0, (p.goaliePlayTime || 0) + (isGoalie ? delta : 0));
             return acc;
         }, {}),
         stintTimes: state.roster.reduce((acc, p) => {
@@ -74,7 +82,11 @@ function syncState() {
         state.accumulatedGameTime += delta;
         state.roster.forEach(p => {
             if (p.onField) {
-                p.totalPlayTime += delta;
+                if (p.position === 'Goalie') {
+                    p.goaliePlayTime = (p.goaliePlayTime || 0) + delta;
+                } else {
+                    p.totalPlayTime += delta;
+                }
                 p.currentStintTime += delta;
             }
         });
@@ -130,6 +142,7 @@ function performActionAndFlashIfMoved(action) {
 // Actions
 function advanceAllPositions() {
     if (confirm('Advance all on-field positions? (D→M, M→O, O→-)')) {
+        syncState();
         performActionAndFlashIfMoved(() => {
             state.roster.forEach(p => {
                 if (p.onField && p.isPresent) {
@@ -163,7 +176,11 @@ function rewind() {
     state.accumulatedGameTime = Math.max(0, state.accumulatedGameTime - rewindMs);
     state.roster.forEach(p => {
         if (p.onField) {
-            p.totalPlayTime = Math.max(0, p.totalPlayTime - rewindMs);
+            if (p.position === 'Goalie') {
+                p.goaliePlayTime = Math.max(0, (p.goaliePlayTime || 0) - rewindMs);
+            } else {
+                p.totalPlayTime = Math.max(0, p.totalPlayTime - rewindMs);
+            }
             p.currentStintTime = Math.max(0, p.currentStintTime - rewindMs);
         } else {
             if (p.lastSubOutGameTime > state.accumulatedGameTime) {
@@ -181,7 +198,11 @@ function fastForward() {
     state.accumulatedGameTime += forwardMs;
     state.roster.forEach(p => {
         if (p.onField) {
-            p.totalPlayTime += forwardMs;
+            if (p.position === 'Goalie') {
+                p.goaliePlayTime = (p.goaliePlayTime || 0) + forwardMs;
+            } else {
+                p.totalPlayTime += forwardMs;
+            }
             p.currentStintTime += forwardMs;
         }
     });
@@ -197,6 +218,7 @@ function addPlayer() {
             name: name,
             onField: false,
             totalPlayTime: 0,
+            goaliePlayTime: 0,
             currentStintTime: 0,
             lastSubOutGameTime: state.accumulatedGameTime,
             isPresent: true,
@@ -261,6 +283,7 @@ function resetGame() {
         state.lastSyncTimestamp = null;
         state.roster.forEach(p => {
             p.totalPlayTime = 0;
+            p.goaliePlayTime = 0;
             p.currentStintTime = 0;
             p.lastSubOutGameTime = 0;
             p.onField = false;
@@ -300,7 +323,7 @@ function getSortedBench(playerTimes, benchTimes) {
 
 // Rendering
 function render() {
-    const { gameTime, playerTimes, stintTimes, benchTimes } = getLiveTimes();
+    const { gameTime, playerTimes, stintTimes, benchTimes, goalieTimes } = getLiveTimes();
     
     // Update Clock
     stopwatchEl.textContent = formatTime(gameTime);
@@ -335,8 +358,8 @@ function render() {
     }
 
     // Render Lists
-    renderPlayerList(onFieldListEl, onField, playerTimes, stintTimes, 'Sub Out', 'on-field-card');
-    renderPlayerList(benchListEl, bench, playerTimes, benchTimes, 'Sub In', 'bench-card');
+    renderPlayerList(onFieldListEl, onField, playerTimes, stintTimes, 'Sub Out', 'on-field-card', goalieTimes);
+    renderPlayerList(benchListEl, bench, playerTimes, benchTimes, 'Sub In', 'bench-card', goalieTimes);
     
     // Admin Roster
     rosterListEl.innerHTML = '';
@@ -361,7 +384,7 @@ function render() {
     }
 }
 
-function renderPlayerList(container, players, times, secondaryTimes, btnText, cardClass) {
+function renderPlayerList(container, players, times, secondaryTimes, btnText, cardClass, goalieTimes) {
     const POS_MAP = {
         'Unassigned': { short: '-', class: 'pos-u' },
         'Goalie': { short: 'G', class: 'pos-g' },
@@ -382,6 +405,9 @@ function renderPlayerList(container, players, times, secondaryTimes, btnText, ca
 
         const isRunning = state.gameRunning && p.onField;
         
+        const goalieMins = goalieTimes ? Math.round((goalieTimes[p.id] || 0) / 60000) : 0;
+        const goalieHtml = goalieMins > 0 ? `<span class="goalie-pill" title="Goalie Time: ${formatTime(goalieTimes[p.id])}">G ${goalieMins}m</span>` : '';
+
         let secondaryHtml = '';
         let posHtml = '';
         if (p.onField) {
@@ -398,7 +424,7 @@ function renderPlayerList(container, players, times, secondaryTimes, btnText, ca
         }
 
         div.innerHTML = `
-            <span class="player-name">${p.name}</span>
+            <span class="player-name"><span class="player-name-text">${p.name}</span>${goalieHtml}</span>
             ${posHtml}
             <span class="player-time ${isRunning ? 'pulsing' : ''}" title="Total Time">${formatTime(times[p.id])}</span>
             ${secondaryHtml}
@@ -417,6 +443,7 @@ let currentPosPlayerId = null;
 let isLongPress = false;
 
 function cyclePosition(id) {
+    syncState();
     const player = state.roster.find(p => p.id === id);
     if (player) {
         performActionAndFlashIfMoved(() => {
@@ -444,6 +471,7 @@ function openPositionDialog(id) {
         
         if (player.position === pos) btn.style.borderColor = 'var(--primary)';
         btn.onclick = () => {
+            syncState();
             performActionAndFlashIfMoved(() => {
                 player.position = pos;
             });

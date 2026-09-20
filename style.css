@@ -145,7 +145,30 @@ h2 {
     font-size: 1rem;
     white-space: nowrap;
     overflow: hidden;
+    display: flex;
+    align-items: center;
+    min-width: 0;
+}
+
+.player-name-text {
+    overflow: hidden;
     text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.goalie-pill {
+    background-color: #f39c12;
+    color: white;
+    font-size: 0.65rem;
+    font-weight: bold;
+    padding: 1px 4px;
+    border-radius: 4px;
+    margin-left: 6px;
+    flex-shrink: 0;
+    line-height: normal;
+    text-shadow: 0 1px 1px rgba(0,0,0,0.2);
+    user-select: none;
+    -webkit-user-select: none;
 }
 
 .player-time {
