@@ -21,18 +21,6 @@
             </div>
         </section>
 
-        <!-- Queue Section: Shown when substitutions are staged -->
-        <section id="queue-section" class="queue-section hidden">
-            <div class="queue-info">
-                <span class="queue-title">📋 Substitution Queue</span>
-                <span id="queue-summary" class="queue-summary">0 In, 0 Out</span>
-            </div>
-            <div class="queue-controls">
-                <button id="execute-subs-btn" class="btn-execute">▶ Execute Subs</button>
-                <button id="cancel-queue-btn" class="btn-cancel">✕ Cancel</button>
-            </div>
-        </section>
-
         <!-- Section 2: On Field -->
         <section id="on-field-section">
             <h2>On Field</h2>
@@ -42,7 +30,7 @@
                     <span class="col-label">Pos</span>
                     <span class="col-label">Total</span>
                     <span class="col-label">Stint</span>
-                    <button id="auto-queue-btn" class="btn-advance" title="Queue Rotation (Bench→D→M→O→Bench)">⚡ Rotate</button>
+                    <span class="col-label"></span>
                 </div>
                 <div id="on-field-list" class="player-list">
                     <!-- Players will be injected here -->
@@ -69,6 +57,56 @@
                 </div>
                 <div id="bench-list" class="player-list">
                     <!-- Players will be injected here -->
+                </div>
+            </div>
+        </section>
+
+        <!-- Section 3.5: Substitution Plan -->
+        <section id="plan-section">
+            <div id="plan-header" class="plan-header">
+                <div class="plan-header-title">
+                    <span id="plan-toggle-icon" class="plan-toggle-icon">▶</span>
+                    <h2>Substitution Plan</h2>
+                </div>
+                <span id="plan-badge" class="plan-badge hidden">0 moves</span>
+            </div>
+            <div id="plan-content" class="plan-content hidden">
+                <div class="plan-columns-header">
+                    <span class="plan-col-title">Current</span>
+                    <span class="plan-col-spacer"></span>
+                    <span class="plan-col-title">Planned (Drag to adjust)</span>
+                </div>
+                <div id="plan-grid-wrapper" class="plan-grid-wrapper">
+                    <svg id="plan-arrows-svg" class="plan-arrows-svg">
+                        <defs>
+                            <marker id="arrow-defense" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+                                <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#2980b9"/>
+                            </marker>
+                            <marker id="arrow-midfield" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+                                <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#27ae60"/>
+                            </marker>
+                            <marker id="arrow-offense" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+                                <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#c0392b"/>
+                            </marker>
+                            <marker id="arrow-goalie" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+                                <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#f39c12"/>
+                            </marker>
+                            <marker id="arrow-bench" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+                                <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#e74c3c"/>
+                            </marker>
+                            <marker id="arrow-unassigned" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+                                <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#2ecc71"/>
+                            </marker>
+                        </defs>
+                    </svg>
+                    <div id="plan-grid" class="plan-grid">
+                        <!-- Dynamic position rows injected here -->
+                    </div>
+                </div>
+                <div class="plan-controls">
+                    <button id="plan-execute-btn" class="btn-execute">▶ Execute Subs</button>
+                    <button id="plan-reset-btn" class="btn-secondary">↺ Auto-Rotate</button>
+                    <button id="plan-clear-btn" class="btn-link">Clear</button>
                 </div>
             </div>
         </section>

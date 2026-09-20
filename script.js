@@ -7,7 +7,8 @@ let state = {
     lastSyncTimestamp: null,
     lastUpdate: Date.now(),
     roster: [], // { id, name, onField: false, totalPlayTime: 0, goaliePlayTime: 0, currentStintTime: 0, lastSubOutGameTime: 0, isPresent: true, position: 'Unassigned' }
-    pendingSubs: {} // { [playerId]: { action: 'sub_in' | 'sub_out' | 'change_pos', position?: string } }
+    subPlan: null, // { [playerId]: 'Goalie'|'Defense'|'Midfield'|'Offense'|'Unassigned'|'Bench' }
+    planExpanded: false
 };
 
 const STORAGE_KEY = 'subtracker_state';
@@ -21,7 +22,8 @@ function loadState() {
             parsed.accumulatedGameTime = 0;
             parsed.gameRunning = false;
             parsed.lastSyncTimestamp = null;
-            parsed.pendingSubs = {};
+            parsed.subPlan = null;
+            parsed.planExpanded = false;
             parsed.roster.forEach(p => {
                 p.totalPlayTime = 0;
                 p.goaliePlayTime = 0;
@@ -32,8 +34,11 @@ function loadState() {
             });
         }
         state = parsed;
-        if (!state.pendingSubs || typeof state.pendingSubs !== 'object') {
-            state.pendingSubs = {};
+        if (state.subPlan && typeof state.subPlan !== 'object') {
+            state.subPlan = null;
+        }
+        if (state.planExpanded === undefined) {
+            state.planExpanded = false;
         }
         // Migration: Ensure all players have needed properties
         state.roster.forEach(p => {
@@ -111,11 +116,6 @@ function formatTime(ms) {
 const stopwatchEl = document.getElementById('stopwatch');
 const shortestStintEl = document.getElementById('shortest-stint');
 const toggleBtn = document.getElementById('toggle-btn');
-const queueSectionEl = document.getElementById('queue-section');
-const queueSummaryEl = document.getElementById('queue-summary');
-const executeSubsBtn = document.getElementById('execute-subs-btn');
-const cancelQueueBtn = document.getElementById('cancel-queue-btn');
-const autoQueueBtn = document.getElementById('auto-queue-btn');
 const onFieldListEl = document.getElementById('on-field-list');
 const onFieldHeaderEl = document.getElementById('on-field-header');
 const benchListEl = document.getElementById('bench-list');
@@ -128,6 +128,18 @@ const addBtn = document.getElementById('add-btn');
 const resetBtn = document.getElementById('reset-btn');
 const rewindBtn = document.getElementById('rewind-btn');
 const fastForwardBtn = document.getElementById('fast-forward-btn');
+
+// Substitution Plan DOM Elements
+const planSectionEl = document.getElementById('plan-section');
+const planHeaderEl = document.getElementById('plan-header');
+const planToggleIcon = document.getElementById('plan-toggle-icon');
+const planBadgeEl = document.getElementById('plan-badge');
+const planContentEl = document.getElementById('plan-content');
+const planGridEl = document.getElementById('plan-grid');
+const planArrowsSvg = document.getElementById('plan-arrows-svg');
+const planExecuteBtn = document.getElementById('plan-execute-btn');
+const planResetBtn = document.getElementById('plan-reset-btn');
+const planClearBtn = document.getElementById('plan-clear-btn');
 
 function performActionAndFlashIfMoved(action) {
     const { stintTimes } = getLiveTimes();
@@ -148,166 +160,410 @@ function performActionAndFlashIfMoved(action) {
     }
 }
 
-// Queue Management Logic
-function isQueueActive() {
-    return !!(state.pendingSubs && Object.keys(state.pendingSubs).length > 0);
+// Substitution Plan Logic
+function arePositionsActive() {
+    return state.roster.some(p => p.onField && p.isPresent && p.position && p.position !== 'Unassigned');
 }
 
-function autoQueueRotation() {
+function getPlannedChanges() {
+    if (!state.subPlan) return [];
+    return state.roster.filter(p => {
+        if (!p.isPresent) return false;
+        const current = p.onField ? (p.position || 'Unassigned') : 'Bench';
+        const planned = state.subPlan[p.id] !== undefined ? state.subPlan[p.id] : current;
+        return planned !== current;
+    });
+}
+
+function generateDefaultSubPlan() {
     syncState();
     const { playerTimes, stintTimes, benchTimes } = getLiveTimes();
     const onField = state.roster.filter(p => p.onField && p.isPresent);
     const bench = getSortedBench(playerTimes, benchTimes);
 
-    if (onField.length === 0) {
-        alert('No players currently on field to rotate.');
-        return;
-    }
-    if (bench.length === 0) {
-        alert('No bench players available to rotate in.');
-        return;
-    }
-
-    const offensePlayers = onField.filter(p => p.position === 'Offense')
-        .sort((a, b) => (stintTimes[b.id] || 0) - (stintTimes[a.id] || 0));
-
-    const eligibleOnField = onField.filter(p => p.position !== 'Goalie')
-        .sort((a, b) => (stintTimes[b.id] || 0) - (stintTimes[a.id] || 0));
-
-    if (eligibleOnField.length === 0) {
-        alert('No eligible field players to rotate.');
-        return;
-    }
-
-    // Only Offense players rotate out to the bench.
-    // (If no players are assigned Offense yet, fallback to longest-stint field players).
-    const candidateOut = offensePlayers.length > 0 ? offensePlayers : eligibleOnField;
-    const numSubs = Math.min(candidateOut.length, bench.length);
-
-    if (numSubs === 0) {
-        alert('No players available to rotate.');
-        return;
-    }
-
-    const subsOut = candidateOut.slice(0, numSubs);
-    const subsIn = bench.slice(0, numSubs);
-    const newPending = {};
-
-    // Offense -> Bench
-    subsOut.forEach(p => {
-        newPending[p.id] = { action: 'sub_out' };
-    });
-
-    // Bench -> Defense
-    subsIn.forEach(p => {
-        newPending[p.id] = { action: 'sub_in', position: 'Defense' };
-    });
-
-    // Field shifts: Defense -> Midfield, Midfield -> Offense (Goalie and Unassigned remain)
-    onField.forEach(p => {
-        if (newPending[p.id]) return; // already subbing out
-        if (p.position === 'Goalie' || p.position === 'Unassigned') return;
-
-        if (p.position === 'Defense') {
-            newPending[p.id] = { action: 'change_pos', position: 'Midfield' };
-        } else if (p.position === 'Midfield') {
-            newPending[p.id] = { action: 'change_pos', position: 'Offense' };
+    const newPlan = {};
+    state.roster.forEach(p => {
+        if (p.isPresent) {
+            newPlan[p.id] = p.onField ? (p.position || 'Unassigned') : 'Bench';
         }
     });
 
-    state.pendingSubs = newPending;
+    if (onField.length > 0 && bench.length > 0) {
+        if (arePositionsActive()) {
+            const offensePlayers = onField.filter(p => p.position === 'Offense')
+                .sort((a, b) => (stintTimes[b.id] || 0) - (stintTimes[a.id] || 0));
+
+            const eligibleOnField = onField.filter(p => p.position !== 'Goalie')
+                .sort((a, b) => (stintTimes[b.id] || 0) - (stintTimes[a.id] || 0));
+
+            const candidateOut = offensePlayers.length > 0 ? offensePlayers : eligibleOnField;
+            const numSubs = Math.min(candidateOut.length, bench.length);
+
+            const subsOut = candidateOut.slice(0, numSubs);
+            const subsIn = bench.slice(0, numSubs);
+
+            // Offense -> Bench
+            subsOut.forEach(p => {
+                newPlan[p.id] = 'Bench';
+            });
+
+            // Bench -> Defense
+            subsIn.forEach(p => {
+                newPlan[p.id] = 'Defense';
+            });
+
+            // Field shifts: Defense -> Midfield, Midfield -> Offense (Goalie and Unassigned remain)
+            onField.forEach(p => {
+                if (subsOut.some(s => s.id === p.id)) return;
+                if (p.position === 'Goalie' || p.position === 'Unassigned') return;
+
+                if (p.position === 'Defense') {
+                    newPlan[p.id] = 'Midfield';
+                } else if (p.position === 'Midfield') {
+                    newPlan[p.id] = 'Offense';
+                }
+            });
+        } else {
+            // Positions not actively in use: rotate onField <-> Bench
+            const numSubs = Math.min(onField.length, bench.length);
+            const subsOut = onField.sort((a, b) => (stintTimes[b.id] || 0) - (stintTimes[a.id] || 0)).slice(0, numSubs);
+            const subsIn = bench.slice(0, numSubs);
+
+            subsOut.forEach(p => {
+                newPlan[p.id] = 'Bench';
+            });
+            subsIn.forEach(p => {
+                newPlan[p.id] = 'Unassigned';
+            });
+        }
+    }
+
+    state.subPlan = newPlan;
     saveState();
     render();
 }
 
-function executeSubs() {
-    if (!isQueueActive()) return;
+function executeSubPlan() {
+    if (!state.subPlan) return;
     syncState();
     const execTime = state.accumulatedGameTime;
 
-    Object.entries(state.pendingSubs).forEach(([id, pending]) => {
-        const player = state.roster.find(p => p.id === id);
-        if (!player || !player.isPresent) return;
+    state.roster.forEach(p => {
+        if (!p.isPresent) return;
+        const current = p.onField ? (p.position || 'Unassigned') : 'Bench';
+        const target = state.subPlan[p.id] !== undefined ? state.subPlan[p.id] : current;
+        if (target === current) return;
 
-        if (pending.action === 'sub_out') {
-            player.onField = false;
-            player.lastSubOutGameTime = execTime;
-        } else if (pending.action === 'sub_in') {
-            const benchDuration = execTime - player.lastSubOutGameTime;
-            if (benchDuration >= 30000) {
-                player.currentStintTime = 0;
+        if (target === 'Bench') {
+            p.onField = false;
+            p.lastSubOutGameTime = execTime;
+        } else {
+            if (!p.onField) {
+                const benchDuration = execTime - p.lastSubOutGameTime;
+                if (benchDuration >= 30000) {
+                    p.currentStintTime = 0;
+                }
+                p.onField = true;
             }
-            player.onField = true;
-            player.position = pending.position || 'Defense';
-        } else if (pending.action === 'change_pos') {
-            player.position = pending.position || player.position;
+            p.position = target;
         }
     });
 
-    state.pendingSubs = {};
+    state.subPlan = null;
+    state.planExpanded = false;
     saveState();
     render();
 }
 
-function cancelQueue() {
-    state.pendingSubs = {};
+function clearSubPlan() {
+    state.subPlan = null;
     saveState();
     render();
 }
 
-function toggleQueuePlayer(id) {
-    if (!state.pendingSubs) state.pendingSubs = {};
-    const player = state.roster.find(p => p.id === id);
-    if (!player || !player.isPresent) return;
-
-    const pending = state.pendingSubs[id];
-    if (pending) {
-        if (pending.action === 'change_pos') {
-            pending.action = 'sub_out';
-            delete pending.position;
-        } else {
-            delete state.pendingSubs[id];
-        }
+function togglePlanExpanded() {
+    state.planExpanded = !state.planExpanded;
+    if (state.planExpanded && !state.subPlan) {
+        generateDefaultSubPlan();
     } else {
-        if (player.onField) {
-            state.pendingSubs[id] = { action: 'sub_out' };
-        } else {
-            state.pendingSubs[id] = { action: 'sub_in', position: 'Defense' };
+        saveState();
+        render();
+    }
+}
+
+function movePlayerInPlan(playerId, newPos) {
+    if (!state.subPlan) {
+        state.subPlan = {};
+        state.roster.forEach(p => {
+            if (p.isPresent) {
+                state.subPlan[p.id] = p.onField ? (p.position || 'Unassigned') : 'Bench';
+            }
+        });
+    }
+    state.subPlan[playerId] = newPos;
+    saveState();
+    render();
+}
+
+function renderPlan() {
+    if (!planSectionEl) return;
+
+    if (state.planExpanded) {
+        planContentEl.classList.remove('hidden');
+        planToggleIcon.classList.add('expanded');
+    } else {
+        planContentEl.classList.add('hidden');
+        planToggleIcon.classList.remove('expanded');
+    }
+
+    const changes = getPlannedChanges();
+    if (changes.length > 0) {
+        planBadgeEl.textContent = `${changes.length} ${changes.length === 1 ? 'move' : 'moves'}`;
+        planBadgeEl.classList.remove('hidden');
+    } else {
+        planBadgeEl.classList.add('hidden');
+    }
+
+    if (!state.planExpanded) {
+        const defsEl = planArrowsSvg.querySelector('defs');
+        planArrowsSvg.innerHTML = defsEl ? defsEl.outerHTML : '';
+        return;
+    }
+
+    const posActive = arePositionsActive();
+    let rows = [];
+    if (posActive) {
+        rows = [
+            { id: 'Goalie', label: 'Goalie', class: 'pos-g' },
+            { id: 'Defense', label: 'Defense', class: 'pos-d' },
+            { id: 'Midfield', label: 'Midfield', class: 'pos-m' },
+            { id: 'Offense', label: 'Offense', class: 'pos-o' }
+        ];
+        if (state.roster.some(p => p.onField && p.isPresent && p.position === 'Unassigned')) {
+            rows.push({ id: 'Unassigned', label: 'Unassigned', class: 'pos-u' });
+        }
+        rows.push({ id: 'Bench', label: 'Bench', class: 'plan-pos-tag-bench' });
+    } else {
+        rows = [
+            { id: 'Unassigned', label: 'On Field', class: 'plan-pos-tag-field' },
+            { id: 'Bench', label: 'Bench', class: 'plan-pos-tag-bench' }
+        ];
+    }
+
+    planGridEl.innerHTML = '';
+    rows.forEach(row => {
+        const currentPlayers = state.roster.filter(p => {
+            if (!p.isPresent) return false;
+            const current = p.onField ? (p.position || 'Unassigned') : 'Bench';
+            return current === row.id;
+        });
+
+        const plannedPlayers = state.roster.filter(p => {
+            if (!p.isPresent) return false;
+            const current = p.onField ? (p.position || 'Unassigned') : 'Bench';
+            const planned = (state.subPlan && state.subPlan[p.id] !== undefined) ? state.subPlan[p.id] : current;
+            return planned === row.id;
+        });
+
+        const leftChipsHtml = currentPlayers.map(p =>
+            `<div class="plan-chip plan-chip-left" data-player-id="${p.id}">${p.name}</div>`
+        ).join('');
+
+        const rightChipsHtml = plannedPlayers.map(p =>
+            `<div class="plan-chip plan-chip-right" draggable="true" data-player-id="${p.id}">${p.name}</div>`
+        ).join('');
+
+        const rowDiv = document.createElement('div');
+        rowDiv.className = 'plan-pos-row';
+        rowDiv.innerHTML = `
+            <div class="plan-cell plan-cell-left">
+                <div class="plan-cell-header">
+                    <span class="plan-pos-tag ${row.class}">${row.label}</span>
+                </div>
+                <div class="plan-chips-container">
+                    ${leftChipsHtml}
+                </div>
+            </div>
+            <div class="plan-row-spacer"></div>
+            <div class="plan-cell plan-cell-right plan-drop-zone" data-pos="${row.id}">
+                <div class="plan-cell-header">
+                    <span class="plan-pos-tag ${row.class}">${row.label}</span>
+                </div>
+                <div class="plan-chips-container">
+                    ${rightChipsHtml}
+                </div>
+            </div>
+        `;
+        planGridEl.appendChild(rowDiv);
+    });
+
+    setupPlanDragAndDrop();
+    requestAnimationFrame(drawPlanArrows);
+}
+
+function drawPlanArrows() {
+    if (!state.planExpanded || !planArrowsSvg || !planGridEl) return;
+
+    const svgRect = planArrowsSvg.getBoundingClientRect();
+    if (svgRect.width === 0 || svgRect.height === 0) return;
+
+    const changes = getPlannedChanges();
+    const posColors = {
+        'Goalie': '#f39c12',
+        'Defense': '#2980b9',
+        'Midfield': '#27ae60',
+        'Offense': '#c0392b',
+        'Bench': '#e74c3c',
+        'Unassigned': '#2ecc71'
+    };
+
+    let pathsHtml = '';
+
+    changes.forEach(p => {
+        const leftEl = planGridEl.querySelector(`.plan-chip-left[data-player-id="${p.id}"]`);
+        const rightEl = planGridEl.querySelector(`.plan-chip-right[data-player-id="${p.id}"]`);
+        if (!leftEl || !rightEl) return;
+
+        const rLeft = leftEl.getBoundingClientRect();
+        const rRight = rightEl.getBoundingClientRect();
+
+        const x1 = rLeft.right - svgRect.left;
+        const y1 = rLeft.top + rLeft.height / 2 - svgRect.top;
+        const x2 = rRight.left - svgRect.left;
+        const y2 = rRight.top + rRight.height / 2 - svgRect.top;
+
+        const dx = Math.max(25, (x2 - x1) * 0.45);
+        const cp1x = x1 + dx;
+        const cp1y = y1;
+        const cp2x = x2 - dx;
+        const cp2y = y2;
+
+        const targetPos = state.subPlan[p.id] || 'Defense';
+        const color = posColors[targetPos] || '#3498db';
+        const markerId = targetPos.toLowerCase();
+
+        pathsHtml += `<path d="M ${x1.toFixed(1)} ${y1.toFixed(1)} C ${cp1x.toFixed(1)} ${cp1y.toFixed(1)}, ${cp2x.toFixed(1)} ${cp2y.toFixed(1)}, ${x2.toFixed(1)} ${y2.toFixed(1)}" class="plan-arrow-path" stroke="${color}" marker-end="url(#arrow-${markerId})"/>`;
+    });
+
+    const defsEl = planArrowsSvg.querySelector('defs');
+    const defsHtml = defsEl ? defsEl.outerHTML : '';
+    planArrowsSvg.innerHTML = defsHtml + pathsHtml;
+}
+
+let activeDragPlayerId = null;
+let touchDragClone = null;
+
+function setupPlanDragAndDrop() {
+    const chips = planGridEl.querySelectorAll('.plan-chip-right');
+    chips.forEach(chip => {
+        chip.addEventListener('dragstart', (e) => {
+            const playerId = chip.dataset.playerId;
+            activeDragPlayerId = playerId;
+            e.dataTransfer.setData('text/plain', playerId);
+            e.dataTransfer.effectAllowed = 'move';
+            chip.classList.add('dragging');
+        });
+
+        chip.addEventListener('dragend', () => {
+            chip.classList.remove('dragging');
+            activeDragPlayerId = null;
+            planGridEl.querySelectorAll('.plan-drop-zone').forEach(z => z.classList.remove('drag-over'));
+        });
+
+        chip.addEventListener('touchstart', handleTouchStart, { passive: false });
+    });
+
+    const dropZones = planGridEl.querySelectorAll('.plan-drop-zone');
+    dropZones.forEach(zone => {
+        zone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            zone.classList.add('drag-over');
+        });
+
+        zone.addEventListener('dragleave', () => {
+            zone.classList.remove('drag-over');
+        });
+
+        zone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            zone.classList.remove('drag-over');
+            const playerId = e.dataTransfer.getData('text/plain') || activeDragPlayerId;
+            const targetPos = zone.dataset.pos;
+            if (playerId && targetPos) {
+                movePlayerInPlan(playerId, targetPos);
+            }
+        });
+    });
+}
+
+function handleTouchStart(e) {
+    const chip = e.currentTarget;
+    const playerId = chip.dataset.playerId;
+    const touch = e.touches[0];
+    activeDragPlayerId = playerId;
+
+    const startX = touch.clientX;
+    const startY = touch.clientY;
+    let isDragging = false;
+
+    function onTouchMove(moveEvent) {
+        const moveTouch = moveEvent.touches[0];
+        const dx = moveTouch.clientX - startX;
+        const dy = moveTouch.clientY - startY;
+
+        if (!isDragging && Math.hypot(dx, dy) > 8) {
+            isDragging = true;
+            chip.classList.add('dragging');
+            touchDragClone = chip.cloneNode(true);
+            touchDragClone.style.position = 'fixed';
+            touchDragClone.style.pointerEvents = 'none';
+            touchDragClone.style.zIndex = '1000';
+            touchDragClone.style.opacity = '0.85';
+            touchDragClone.style.boxShadow = '0 4px 12px rgba(0,0,0,0.25)';
+            document.body.appendChild(touchDragClone);
+        }
+
+        if (isDragging) {
+            moveEvent.preventDefault();
+            touchDragClone.style.left = `${moveTouch.clientX - touchDragClone.offsetWidth / 2}px`;
+            touchDragClone.style.top = `${moveTouch.clientY - touchDragClone.offsetHeight / 2}px`;
+
+            const elemUnder = document.elementFromPoint(moveTouch.clientX, moveTouch.clientY);
+            const zone = elemUnder ? elemUnder.closest('.plan-drop-zone') : null;
+            planGridEl.querySelectorAll('.plan-drop-zone').forEach(z => {
+                if (z === zone) z.classList.add('drag-over');
+                else z.classList.remove('drag-over');
+            });
         }
     }
-    saveState();
-    render();
-}
 
-function cycleQueuedPosition(id) {
-    if (!state.pendingSubs || !state.pendingSubs[id]) return;
-    const pending = state.pendingSubs[id];
-    const player = state.roster.find(p => p.id === id);
-    if (!player) return;
+    function onTouchEnd(endEvent) {
+        document.removeEventListener('touchmove', onTouchMove);
+        document.removeEventListener('touchend', onTouchEnd);
+        document.removeEventListener('touchcancel', onTouchEnd);
 
-    const cycleOrder = ['Defense', 'Midfield', 'Offense', 'Goalie', 'Unassigned'];
+        if (touchDragClone) {
+            touchDragClone.remove();
+            touchDragClone = null;
+        }
+        chip.classList.remove('dragging');
 
-    if (player.onField) {
-        if (pending.action === 'sub_out') {
-            pending.action = 'change_pos';
-            pending.position = 'Defense';
-        } else if (pending.action === 'change_pos') {
-            const currIdx = cycleOrder.indexOf(pending.position || 'Defense');
-            if (currIdx === cycleOrder.length - 1) {
-                pending.action = 'sub_out';
-                delete pending.position;
-            } else {
-                pending.position = cycleOrder[currIdx + 1];
+        if (isDragging) {
+            const endTouch = endEvent.changedTouches[0];
+            const elemUnder = document.elementFromPoint(endTouch.clientX, endTouch.clientY);
+            const zone = elemUnder ? elemUnder.closest('.plan-drop-zone') : null;
+            planGridEl.querySelectorAll('.plan-drop-zone').forEach(z => z.classList.remove('drag-over'));
+            if (zone && activeDragPlayerId) {
+                movePlayerInPlan(activeDragPlayerId, zone.dataset.pos);
             }
         }
-    } else {
-        const currIdx = cycleOrder.indexOf(pending.position || 'Defense');
-        const nextIdx = (currIdx + 1) % cycleOrder.length;
-        pending.position = cycleOrder[nextIdx];
+        activeDragPlayerId = null;
     }
 
-    saveState();
-    render();
+    document.addEventListener('touchmove', onTouchMove, { passive: false });
+    document.addEventListener('touchend', onTouchEnd);
+    document.addEventListener('touchcancel', onTouchEnd);
 }
 
 function toggleClock() {
@@ -386,8 +642,8 @@ function addPlayer() {
 function removePlayer(id) {
     if (confirm('Remove player from roster?')) {
         state.roster = state.roster.filter(p => p.id !== id);
-        if (state.pendingSubs && state.pendingSubs[id]) {
-            delete state.pendingSubs[id];
+        if (state.subPlan && state.subPlan[id]) {
+            delete state.subPlan[id];
         }
         saveState();
         render();
@@ -398,8 +654,8 @@ function togglePresence(id) {
     const player = state.roster.find(p => p.id === id);
     if (player) {
         player.isPresent = !player.isPresent;
-        if (state.pendingSubs && state.pendingSubs[id]) {
-            delete state.pendingSubs[id];
+        if (state.subPlan && state.subPlan[id]) {
+            delete state.subPlan[id];
         }
         if (!player.isPresent) {
             player.onField = false; // Player can't be on field if absent
@@ -440,7 +696,8 @@ function resetGame() {
         state.gameRunning = false;
         state.accumulatedGameTime = 0;
         state.lastSyncTimestamp = null;
-        state.pendingSubs = {};
+        state.subPlan = null;
+        state.planExpanded = false;
         state.roster.forEach(p => {
             p.totalPlayTime = 0;
             p.goaliePlayTime = 0;
@@ -499,21 +756,6 @@ function render() {
         shortestStintEl.textContent = '--:--';
     }
 
-    // Update Queue Section Banner
-    if (isQueueActive()) {
-        queueSectionEl.classList.remove('hidden');
-        const subInCount = Object.values(state.pendingSubs).filter(p => p.action === 'sub_in').length;
-        const subOutCount = Object.values(state.pendingSubs).filter(p => p.action === 'sub_out').length;
-        const shiftCount = Object.values(state.pendingSubs).filter(p => p.action === 'change_pos').length;
-        const parts = [];
-        if (subInCount > 0) parts.push(`${subInCount} In`);
-        if (subOutCount > 0) parts.push(`${subOutCount} Out`);
-        if (shiftCount > 0) parts.push(`${shiftCount} Shift`);
-        queueSummaryEl.textContent = parts.length > 0 ? parts.join(', ') : '0 Queued';
-    } else {
-        queueSectionEl.classList.add('hidden');
-    }
-
     // Sort Players
     const onField = getSortedOnField(stintTimes);
     const bench = getSortedBench(playerTimes, benchTimes);
@@ -536,6 +778,9 @@ function render() {
     renderPlayerList(onFieldListEl, onField, playerTimes, stintTimes, 'on-field-card', goalieTimes);
     renderPlayerList(benchListEl, bench, playerTimes, benchTimes, 'bench-card', goalieTimes);
     
+    // Render Substitution Plan
+    renderPlan();
+
     // Admin Roster
     rosterListEl.innerHTML = '';
     state.roster.forEach(p => {
@@ -583,68 +828,42 @@ function renderPlayerList(container, players, times, secondaryTimes, cardClass, 
         const goalieMins = goalieTimes ? Math.round((goalieTimes[p.id] || 0) / 60000) : 0;
         const goalieHtml = goalieMins > 0 ? `<span class="goalie-pill" title="Goalie Time: ${formatTime(goalieTimes[p.id])}">G ${goalieMins}m</span>` : '';
 
-        const pending = state.pendingSubs ? state.pendingSubs[p.id] : null;
+        // Planned change badge (only if planned position differs from current)
+        let plannedBadgeHtml = '';
+        if (state.subPlan) {
+            const currentPos = p.onField ? (p.position || 'Unassigned') : 'Bench';
+            const plannedPos = state.subPlan[p.id] !== undefined ? state.subPlan[p.id] : currentPos;
+            if (plannedPos !== currentPos) {
+                if (plannedPos === 'Bench') {
+                    plannedBadgeHtml = `<span class="planned-change-badge queue-badge-out" title="Planned: Bench">➔ 🪑</span>`;
+                } else {
+                    const targetPosData = POS_MAP[plannedPos] || POS_MAP['Unassigned'];
+                    plannedBadgeHtml = `<span class="planned-change-badge ${targetPosData.class}" title="Planned: ${plannedPos}">➔ ${targetPosData.short}</span>`;
+                }
+            }
+        }
 
         let secondaryHtml = '';
         let posHtml = '';
-        const inPlanningMode = isQueueActive();
-        let buttonText = p.onField ? (inPlanningMode ? 'Queue' : 'Sub Out') : (inPlanningMode ? 'Queue' : 'Sub In');
-        let buttonClass = p.onField ? 'btn-secondary' : 'btn-primary';
-        let queuedBadgeHtml = '';
-
         if (p.onField) {
             const posData = POS_MAP[p.position || 'Unassigned'] || POS_MAP['Unassigned'];
-            
-            if (pending) {
-                if (pending.action === 'sub_out') {
-                    div.classList.add('queued-out-card');
-                    buttonText = inPlanningMode ? 'Cancel' : 'Sub Out';
-                    buttonClass = 'btn-queued-out';
-                    posHtml = `
-                        <div class="pos-container">
-                            <div class="pos-btn ${posData.class}" data-id="${p.id}">${posData.short}</div>
-                            <span class="queue-target-badge queue-badge-out" data-id="${p.id}" title="Queued to Sub Out (Click to change)">➔ 🪑</span>
-                        </div>
-                    `;
-                } else if (pending.action === 'change_pos') {
-                    div.classList.add('queued-shift-card');
-                    const targetPosData = POS_MAP[pending.position || 'Unassigned'] || POS_MAP['Unassigned'];
-                    posHtml = `
-                        <div class="pos-container">
-                            <div class="pos-btn ${posData.class}" data-id="${p.id}">${posData.short}</div>
-                            <span class="queue-target-badge ${targetPosData.class}" data-id="${p.id}" title="Queued Position: ${pending.position} (Click to cycle)">➔ ${targetPosData.short}</span>
-                        </div>
-                    `;
-                }
-            } else {
-                posHtml = `<div class="pos-btn ${posData.class}" data-id="${p.id}">${posData.short}</div>`;
-            }
-
+            posHtml = `<div class="pos-btn ${posData.class}" data-id="${p.id}">${posData.short}</div>`;
             if (secondaryTimes) {
                 secondaryHtml = `<span class="player-time stint-time" title="Current Stint">${formatTime(secondaryTimes[p.id])}</span>`;
             }
             div.classList.add('has-stint');
         } else {
-            // Bench
-            if (pending && pending.action === 'sub_in') {
-                div.classList.add('queued-in-card');
-                buttonText = inPlanningMode ? 'Cancel' : 'Sub In';
-                buttonClass = 'btn-queued-in';
-                const targetPosData = POS_MAP[pending.position || 'Defense'] || POS_MAP['Defense'];
-                queuedBadgeHtml = `<span class="queue-target-badge ${targetPosData.class}" data-id="${p.id}" title="Target Position: ${pending.position} (Click to cycle)">➔ ${targetPosData.short}</span>`;
-            }
-
             if (secondaryTimes) {
                 secondaryHtml = `<span class="player-time bench-time" title="Time on Bench">${formatTime(secondaryTimes[p.id])}</span>`;
             }
         }
 
         div.innerHTML = `
-            <span class="player-name"><span class="player-name-text">${p.name}</span>${goalieHtml}${queuedBadgeHtml}</span>
+            <span class="player-name"><span class="player-name-text">${p.name}</span>${goalieHtml}${plannedBadgeHtml}</span>
             ${posHtml}
             <span class="player-time ${isRunning ? 'pulsing' : ''}" title="Total Time">${formatTime(times[p.id])}</span>
             ${secondaryHtml}
-            <button class="sub-btn ${buttonClass}" data-id="${p.id}">${buttonText}</button>
+            <button class="sub-btn ${p.onField ? 'btn-secondary' : 'btn-primary'}" data-id="${p.id}">${p.onField ? 'Sub Out' : 'Sub In'}</button>
         `;
         container.appendChild(div);
     });
@@ -702,9 +921,6 @@ function openPositionDialog(id) {
 
 closeDialog.onclick = () => positionDialog.close();
 
-let subLongPressTimer = null;
-let isSubLongPress = false;
-
 // Event Listeners for Pointer (Unified Touch/Mouse)
 document.addEventListener('pointerdown', (e) => {
     if (e.target.classList.contains('pos-btn')) {
@@ -715,24 +931,12 @@ document.addEventListener('pointerdown', (e) => {
             openPositionDialog(id);
         }, 1000);
     }
-    if (e.target.classList.contains('sub-btn') && !isQueueActive()) {
-        isSubLongPress = false;
-        const id = e.target.dataset.id;
-        subLongPressTimer = setTimeout(() => {
-            isSubLongPress = true;
-            toggleQueuePlayer(id);
-        }, 500);
-    }
 });
 
 function cancelLongPress() {
     if (longPressTimer) {
         clearTimeout(longPressTimer);
         longPressTimer = null;
-    }
-    if (subLongPressTimer) {
-        clearTimeout(subLongPressTimer);
-        subLongPressTimer = null;
     }
 }
 
@@ -748,9 +952,11 @@ fastForwardBtn.addEventListener('click', fastForward);
 addBtn.addEventListener('click', addPlayer);
 resetBtn.addEventListener('click', resetGame);
 adminToggle.addEventListener('click', () => adminContent.classList.toggle('hidden'));
-if (autoQueueBtn) autoQueueBtn.addEventListener('click', autoQueueRotation);
-if (executeSubsBtn) executeSubsBtn.addEventListener('click', executeSubs);
-if (cancelQueueBtn) cancelQueueBtn.addEventListener('click', cancelQueue);
+
+if (planHeaderEl) planHeaderEl.addEventListener('click', togglePlanExpanded);
+if (planExecuteBtn) planExecuteBtn.addEventListener('click', executeSubPlan);
+if (planResetBtn) planResetBtn.addEventListener('click', generateDefaultSubPlan);
+if (planClearBtn) planClearBtn.addEventListener('click', clearSubPlan);
 
 document.addEventListener('click', (e) => {
     if (e.target.classList.contains('pos-btn')) {
@@ -758,19 +964,8 @@ document.addEventListener('click', (e) => {
         if (isLongPress) return;
         cyclePosition(e.target.dataset.id);
     }
-    if (e.target.classList.contains('queue-target-badge')) {
-        cycleQueuedPosition(e.target.dataset.id);
-    }
     if (e.target.classList.contains('sub-btn')) {
-        if (isSubLongPress) {
-            isSubLongPress = false;
-            return;
-        }
-        if (isQueueActive()) {
-            toggleQueuePlayer(e.target.dataset.id);
-        } else {
-            subPlayer(e.target.dataset.id);
-        }
+        subPlayer(e.target.dataset.id);
     }
     if (e.target.classList.contains('remove-player-btn')) {
         removePlayer(e.target.dataset.id);
@@ -779,6 +974,13 @@ document.addEventListener('click', (e) => {
         togglePresence(e.target.dataset.id);
     }
 });
+
+window.addEventListener('resize', () => {
+    if (state.planExpanded) drawPlanArrows();
+});
+window.addEventListener('scroll', () => {
+    if (state.planExpanded) drawPlanArrows();
+}, { passive: true });
 
 // Init
 loadState();
