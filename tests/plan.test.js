@@ -4,7 +4,8 @@ import { createInitialState, createPlayer, syncState } from '../js/state.js';
 import {
     getCurrentSlot, getPlannedSlot, getPlannedChanges, arePositionsActive,
     generateDefaultSubPlan, executeSubPlan, clearSubPlan, movePlayerInPlan,
-    getSortedOnField, getSortedBench
+    getSortedOnField, getSortedBench,
+    freezeSortOrder, unfreezeSortOrder, isSortFrozen
 } from '../js/plan.js';
 import { BENCH } from '../js/positions.js';
 
@@ -203,4 +204,60 @@ test('getSortedBench: longest bench first, then least play time, then name', () 
     const times = { [state.roster[0].id]: 0, [state.roster[1].id]: 0, [state.roster[2].id]: 50000 };
     const sorted = getSortedBench(state, times, bench);
     assert.deepEqual(sorted.map(p => p.name), ['Amy', 'Zed', 'Bob']);
+});
+
+// --- Sort freeze (position dialog) ---
+
+function freezeFixture() {
+    const state = setup([
+        ['MidOld', { onField: true, position: 'Midfield', currentStintTime: 90000 }],
+        ['DefNew', { onField: true, position: 'Defense', currentStintTime: 1000 }],
+        ['Bench1', { onField: false, lastSubOutGameTime: 0 }]
+    ]);
+    const stint = Object.fromEntries(state.roster.map(p => [p.id, p.currentStintTime]));
+    const times = Object.fromEntries(state.roster.map(p => [p.id, 0]));
+    const bench = Object.fromEntries(state.roster.map(p => [p.id, 0]));
+    return { state, stint, times, bench };
+}
+
+test('freezeSortOrder pins both lists while positions are configured', () => {
+    const { state, stint, times, bench } = freezeFixture();
+    try {
+        freezeSortOrder(state);
+        assert.equal(isSortFrozen(), true);
+        assert.deepEqual(getSortedOnField(state, stint).map(p => p.name), ['MidOld', 'DefNew']);
+        assert.deepEqual(getSortedBench(state, times, bench).map(p => p.name), ['Bench1']);
+    } finally {
+        unfreezeSortOrder();
+    }
+    assert.equal(isSortFrozen(), false);
+});
+
+test('frozen order ignores position changes until unfrozen', () => {
+    const { state, stint } = freezeFixture();
+    try {
+        freezeSortOrder(state);
+        state.roster[1].position = 'Unassigned'; // live sort would reorder
+        const frozen = getSortedOnField(state, stint);
+        assert.deepEqual(frozen.map(p => p.name), ['MidOld', 'DefNew']);
+        const live = getSortedOnField(state, stint, { ignoreFreeze: true });
+        assert.deepEqual(live.map(p => p.name), ['DefNew', 'MidOld']);
+    } finally {
+        unfreezeSortOrder();
+    }
+    const sorted = getSortedOnField(state, stint);
+    assert.deepEqual(sorted.map(p => p.name), ['DefNew', 'MidOld']);
+});
+
+test('frozen order filters out players whose slot membership changed', () => {
+    const { state, stint, times, bench } = freezeFixture();
+    freezeSortOrder(state);
+    // Player is subbed out while frozen: frozen on-field list must drop them.
+    state.roster[1].onField = false;
+    const frozen = getSortedOnField(state, stint);
+    assert.deepEqual(frozen.map(p => p.name), ['MidOld']);
+    // Bench keeps frozen order; the newly benched player is appended, not dropped.
+    const frozenBench = getSortedBench(state, times, bench);
+    assert.deepEqual(frozenBench.map(p => p.name), ['Bench1', 'DefNew']);
+    unfreezeSortOrder();
 });

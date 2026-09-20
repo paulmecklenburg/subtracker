@@ -3,7 +3,8 @@ import { POSITIONS, BENCH, posData, escapeHtml, formatTime } from './positions.j
 import { getLiveTimes } from './state.js';
 import {
     getCurrentSlot, getPlannedSlot, getPlannedChanges,
-    getSortedOnField, getSortedBench, arePositionsActive
+    getSortedOnField, getSortedBench, arePositionsActive,
+    freezeSortOrder, unfreezeSortOrder
 } from './plan.js';
 
 const $ = id => document.getElementById(id);
@@ -377,68 +378,44 @@ function handleTouchStart(e, chip, onMove) {
     document.addEventListener('touchcancel', onTouchEnd);
 }
 
-// --- Position dialog + long press ---
+// --- Position picker dialog ---
 
 const dialog = {
     el: $('position-dialog'),
+    title: $('position-dialog-title'),
     options: $('position-options'),
-    closeBtn: $('close-dialog'),
-    timer: null,
-    wasLongPress: false,
-    playerId: null
+    closeBtn: $('close-dialog')
 };
 
-export function initPositionDialog(onCycle, onSet) {
-    dialog.closeBtn.onclick = () => dialog.el.close();
-
-    let startX = 0;
-    let startY = 0;
-
-    document.addEventListener('pointerdown', (e) => {
-        if (!e.target.classList.contains('pos-btn')) return;
-        dialog.wasLongPress = false;
-        startX = e.clientX;
-        startY = e.clientY;
-        const id = e.target.dataset.id;
-        dialog.timer = setTimeout(() => {
-            dialog.wasLongPress = true;
-            openPositionDialog(id, onSet);
-        }, 800);
-    });
-
-    // Cancel long press only if movement exceeds jitter threshold (10px).
-    document.addEventListener('pointermove', (e) => {
-        if (dialog.timer) {
-            const dist = Math.hypot(e.clientX - startX, e.clientY - startY);
-            if (dist > 10) {
-                cancelLongPress();
-            }
-        }
-    });
-
-    ['pointerup', 'pointercancel'].forEach(evt =>
-        document.addEventListener(evt, cancelLongPress)
-    );
-
-    document.addEventListener('click', (e) => {
-        if (e.target.classList.contains('pos-btn')) {
-            if (dialog.wasLongPress) return; // ignore click that followed a long press
-            onCycle(e.target.dataset.id);
-        }
-    });
+// Called after the dialog closes so main can re-render with sorting resumed.
+let dialogClosedHandler = () => {};
+export function setDialogClosedHandler(fn) {
+    dialogClosedHandler = fn;
 }
 
-function cancelLongPress() {
-    if (dialog.timer) {
-        clearTimeout(dialog.timer);
-        dialog.timer = null;
-    }
+export function initPositionDialog(onSet) {
+    dialog.closeBtn.onclick = () => dialog.el.close();
+
+    // One unfreeze point for every close path (select, Cancel button, Esc).
+    dialog.el.addEventListener('close', () => {
+        unfreezeSortOrder();
+        dialogClosedHandler();
+    });
+
+    // Single tap opens the picker; no cycling, so the row never moves mid-edit.
+    document.addEventListener('click', (e) => {
+        if (e.target.classList.contains('pos-btn')) {
+            openPositionDialog(e.target.dataset.id, onSet);
+        }
+    });
 }
 
 function openPositionDialog(id, onSet) {
-    dialog.playerId = id;
     const player = currentRosterRef.roster.find(p => p.id === id);
     if (!player) return;
+    freezeSortOrder(currentRosterRef);
+
+    if (dialog.title) dialog.title.textContent = `Configuring: ${player.name}`;
     dialog.options.innerHTML = '';
     POSITIONS.forEach(pos => {
         const btn = document.createElement('button');

@@ -132,7 +132,41 @@ export function clearSubPlan(state) {
 
 // --- Sorting helpers ---
 
-export function getSortedOnField(state, stintTimes) {
+// While the position dialog is open, list orders are pinned so rows don't
+// jump around between decisions. Sorting resumes when the dialog closes.
+let sortFreeze = null;
+
+export function freezeSortOrder(state) {
+    sortFreeze = {
+        onField: state.roster.filter(p => p.onField && p.isPresent).map(p => p.id),
+        bench: state.roster.filter(p => !p.onField && p.isPresent).map(p => p.id)
+    };
+    return state;
+}
+
+export function unfreezeSortOrder() {
+    sortFreeze = null;
+}
+
+export function isSortFrozen() {
+    return sortFreeze !== null;
+}
+
+// Replay a frozen ordering, then append any new matching players (roster
+// order) so rows can vanish only if they truly left the slot, never if they
+// merely were unknown when the order was captured.
+function inFrozenOrder(state, ids, predicate) {
+    const byId = new Map(state.roster.map(p => [p.id, p]));
+    const ordered = ids.map(id => byId.get(id)).filter(p => p && predicate(p));
+    const seen = new Set(ordered.map(p => p.id));
+    const extras = state.roster.filter(p => predicate(p) && !seen.has(p.id));
+    return [...ordered, ...extras];
+}
+
+export function getSortedOnField(state, stintTimes, { ignoreFreeze = false } = {}) {
+    if (sortFreeze && !ignoreFreeze) {
+        return inFrozenOrder(state, sortFreeze.onField, p => p.onField && p.isPresent);
+    }
     return state.roster.filter(p => p.onField && p.isPresent)
         .slice()
         .sort((a, b) => {
@@ -143,7 +177,10 @@ export function getSortedOnField(state, stintTimes) {
         });
 }
 
-export function getSortedBench(state, playerTimes, benchTimes) {
+export function getSortedBench(state, playerTimes, benchTimes, { ignoreFreeze = false } = {}) {
+    if (sortFreeze && !ignoreFreeze) {
+        return inFrozenOrder(state, sortFreeze.bench, p => !p.onField && p.isPresent);
+    }
     return state.roster.filter(p => !p.onField && p.isPresent)
         .slice()
         .sort((a, b) => {

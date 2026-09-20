@@ -8,15 +8,15 @@ import {
     generateDefaultSubPlan, executeSubPlan, clearSubPlan, movePlayerInPlan,
     getSortedOnField
 } from './plan.js';
-import { POSITIONS } from './positions.js';
 import {
     render, initPositionDialog, redrawArrows, initPlanResizeObserver,
-    isDragInProgress, bindStateRef, setPlanMoveHandler
+    isDragInProgress, bindStateRef, setPlanMoveHandler, setDialogClosedHandler
 } from './ui.js';
 
 let state = loadState();
 bindStateRef(state);
 setPlanMoveHandler(onMoveInPlan);
+setDialogClosedHandler(rerender);
 
 const els = {
     toggleBtn: document.getElementById('toggle-btn'),
@@ -95,13 +95,14 @@ function onResetGame() {
 }
 
 // Flash players whose on-field ordering changed as a result of `action`.
-function withReorderFlash(action) {
+// ignoreSortFreeze computes against live sort even while orders are pinned.
+function withReorderFlash(action, ignoreSortFreeze = false) {
     const { stintTimes } = getLiveTimes(state);
-    const before = getSortedOnField(state, stintTimes).map(p => p.id);
+    const before = getSortedOnField(state, stintTimes, { ignoreFreeze: ignoreSortFreeze }).map(p => p.id);
 
     action();
 
-    const after = getSortedOnField(state, stintTimes).map(p => p.id);
+    const after = getSortedOnField(state, stintTimes, { ignoreFreeze: ignoreSortFreeze }).map(p => p.id);
     if (JSON.stringify(before) !== JSON.stringify(after)) {
         after.forEach((id, index) => {
             if (before[index] !== id) {
@@ -112,25 +113,14 @@ function withReorderFlash(action) {
     }
 }
 
-function onCyclePosition(id) {
-    const player = state.roster.find(p => p.id === id);
-    if (!player) return;
-    withReorderFlash(() => {
-        const nextIndex = (POSITIONS.indexOf(player.position || 'Unassigned') + 1) % POSITIONS.length;
-        player.position = POSITIONS[nextIndex];
-    });
-    rerender();
-    persist();
-}
-
 function onSetPosition(id, pos) {
     const player = state.roster.find(p => p.id === id);
     if (!player) return;
     withReorderFlash(() => {
         player.position = pos;
-    });
-    rerender();
+    }, true);
     persist();
+    // Re-render happens when the dialog closes and sorting resumes.
 }
 
 function onTogglePlanExpanded() {
@@ -190,7 +180,7 @@ document.addEventListener('click', (e) => {
     }
 });
 
-initPositionDialog(onCyclePosition, onSetPosition);
+initPositionDialog(onSetPosition);
 initPlanResizeObserver(state);
 
 window.addEventListener('resize', () => {
