@@ -105,6 +105,7 @@ const playerNameInput = document.getElementById('player-name');
 const addBtn = document.getElementById('add-btn');
 const resetBtn = document.getElementById('reset-btn');
 const rewindBtn = document.getElementById('rewind-btn');
+const fastForwardBtn = document.getElementById('fast-forward-btn');
 const advanceAllBtn = document.getElementById('advance-all-btn');
 
 function performActionAndFlashIfMoved(action) {
@@ -168,6 +169,20 @@ function rewind() {
             if (p.lastSubOutGameTime > state.accumulatedGameTime) {
                 p.lastSubOutGameTime = state.accumulatedGameTime;
             }
+        }
+    });
+    saveState();
+    render();
+}
+
+function fastForward() {
+    syncState();
+    const forwardMs = 30000;
+    state.accumulatedGameTime += forwardMs;
+    state.roster.forEach(p => {
+        if (p.onField) {
+            p.totalPlayTime += forwardMs;
+            p.currentStintTime += forwardMs;
         }
     });
     saveState();
@@ -470,6 +485,7 @@ document.addEventListener('pointerout', cancelLongPress);
 // Event Listeners
 toggleBtn.addEventListener('click', toggleClock);
 rewindBtn.addEventListener('click', rewind);
+fastForwardBtn.addEventListener('click', fastForward);
 addBtn.addEventListener('click', addPlayer);
 resetBtn.addEventListener('click', resetGame);
 adminToggle.addEventListener('click', () => adminContent.classList.toggle('hidden'));
