@@ -86,7 +86,7 @@ h2 {
 }
 
 .bench-grid {
-    grid-template-columns: 1fr auto auto;
+    grid-template-columns: 1fr auto auto auto;
     gap: 8px;
 }
 
@@ -132,7 +132,8 @@ h2 {
     background: #f0fff4;
 }
 
-.on-field-card .player-time {
+.on-field-card .player-time,
+.bench-card .player-time {
     font-size: 0.95rem;
     color: #666;
 }
@@ -155,7 +156,8 @@ h2 {
     text-align: right;
 }
 
-.stint-time {
+.stint-time,
+.bench-time {
     color: #888;
     font-size: 0.95rem;
 }

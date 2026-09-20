@@ -48,15 +48,20 @@ function saveState() {
 function getLiveTimes() {
     const now = Date.now();
     const delta = (state.gameRunning && state.lastSyncTimestamp) ? (now - state.lastSyncTimestamp) : 0;
+    const gameTime = Math.max(0, state.accumulatedGameTime + delta);
     
     return {
-        gameTime: Math.max(0, state.accumulatedGameTime + delta),
+        gameTime,
         playerTimes: state.roster.reduce((acc, p) => {
             acc[p.id] = Math.max(0, p.totalPlayTime + (state.gameRunning && p.onField ? delta : 0));
             return acc;
         }, {}),
         stintTimes: state.roster.reduce((acc, p) => {
             acc[p.id] = Math.max(0, p.currentStintTime + (state.gameRunning && p.onField ? delta : 0));
+            return acc;
+        }, {}),
+        benchTimes: state.roster.reduce((acc, p) => {
+            acc[p.id] = (!p.onField && p.isPresent) ? Math.max(0, gameTime - (p.lastSubOutGameTime || 0)) : 0;
             return acc;
         }, {})
     };
@@ -92,6 +97,7 @@ const toggleBtn = document.getElementById('toggle-btn');
 const onFieldListEl = document.getElementById('on-field-list');
 const onFieldHeaderEl = document.getElementById('on-field-header');
 const benchListEl = document.getElementById('bench-list');
+const benchHeaderEl = document.getElementById('bench-header');
 const adminToggle = document.getElementById('admin-toggle');
 const adminContent = document.getElementById('admin-content');
 const rosterListEl = document.getElementById('roster-list');
@@ -158,6 +164,10 @@ function rewind() {
         if (p.onField) {
             p.totalPlayTime = Math.max(0, p.totalPlayTime - rewindMs);
             p.currentStintTime = Math.max(0, p.currentStintTime - rewindMs);
+        } else {
+            if (p.lastSubOutGameTime > state.accumulatedGameTime) {
+                p.lastSubOutGameTime = state.accumulatedGameTime;
+            }
         }
     });
     saveState();
@@ -173,8 +183,9 @@ function addPlayer() {
             onField: false,
             totalPlayTime: 0,
             currentStintTime: 0,
-            lastSubOutGameTime: 0,
-            isPresent: true
+            lastSubOutGameTime: state.accumulatedGameTime,
+            isPresent: true,
+            position: 'Unassigned'
         });
         playerNameInput.value = '';
         saveState();
@@ -196,6 +207,10 @@ function togglePresence(id) {
         player.isPresent = !player.isPresent;
         if (!player.isPresent) {
             player.onField = false; // Player can't be on field if absent
+        } else {
+            if (state.accumulatedGameTime > 0) {
+                player.lastSubOutGameTime = state.accumulatedGameTime;
+            }
         }
     }
     saveState();
@@ -251,14 +266,26 @@ function getSortedOnField(stintTimes) {
         });
 }
 
-function getSortedBench(playerTimes) {
+function getSortedBench(playerTimes, benchTimes) {
     return state.roster.filter(p => !p.onField && p.isPresent)
-        .sort((a, b) => playerTimes[a.id] - playerTimes[b.id]);
+        .sort((a, b) => {
+            const benchA = (benchTimes && benchTimes[a.id]) || 0;
+            const benchB = (benchTimes && benchTimes[b.id]) || 0;
+            const benchDiff = benchB - benchA;
+            if (benchDiff !== 0) return benchDiff;
+
+            const playA = (playerTimes && playerTimes[a.id]) || 0;
+            const playB = (playerTimes && playerTimes[b.id]) || 0;
+            const playDiff = playA - playB;
+            if (playDiff !== 0) return playDiff;
+
+            return a.name.localeCompare(b.name);
+        });
 }
 
 // Rendering
 function render() {
-    const { gameTime, playerTimes, stintTimes } = getLiveTimes();
+    const { gameTime, playerTimes, stintTimes, benchTimes } = getLiveTimes();
     
     // Update Clock
     stopwatchEl.textContent = formatTime(gameTime);
@@ -276,7 +303,7 @@ function render() {
 
     // Sort Players
     const onField = getSortedOnField(stintTimes);
-    const bench = getSortedBench(playerTimes);
+    const bench = getSortedBench(playerTimes, benchTimes);
 
     // Update Headers visibility and structure
     if (onField.length > 0) {
@@ -286,9 +313,15 @@ function render() {
         onFieldHeaderEl.classList.add('hidden');
     }
 
+    if (bench.length > 0) {
+        benchHeaderEl.classList.remove('hidden');
+    } else {
+        benchHeaderEl.classList.add('hidden');
+    }
+
     // Render Lists
     renderPlayerList(onFieldListEl, onField, playerTimes, stintTimes, 'Sub Out', 'on-field-card');
-    renderPlayerList(benchListEl, bench, playerTimes, null, 'Sub In', 'bench-card');
+    renderPlayerList(benchListEl, bench, playerTimes, benchTimes, 'Sub In', 'bench-card');
     
     // Admin Roster
     rosterListEl.innerHTML = '';
@@ -313,7 +346,7 @@ function render() {
     }
 }
 
-function renderPlayerList(container, players, times, stintTimes, btnText, cardClass) {
+function renderPlayerList(container, players, times, secondaryTimes, btnText, cardClass) {
     const POS_MAP = {
         'Unassigned': { short: '-', class: 'pos-u' },
         'Goalie': { short: 'G', class: 'pos-g' },
@@ -334,20 +367,26 @@ function renderPlayerList(container, players, times, stintTimes, btnText, cardCl
 
         const isRunning = state.gameRunning && p.onField;
         
-        let stintHtml = '';
+        let secondaryHtml = '';
         let posHtml = '';
-        if (stintTimes) {
+        if (p.onField) {
             const posData = POS_MAP[p.position || 'Unassigned'];
-            stintHtml = `<span class="player-time stint-time" title="Current Stint">${formatTime(stintTimes[p.id])}</span>`;
             posHtml = `<div class="pos-btn ${posData.class}" data-id="${p.id}">${posData.short}</div>`;
+            if (secondaryTimes) {
+                secondaryHtml = `<span class="player-time stint-time" title="Current Stint">${formatTime(secondaryTimes[p.id])}</span>`;
+            }
             div.classList.add('has-stint');
+        } else {
+            if (secondaryTimes) {
+                secondaryHtml = `<span class="player-time bench-time" title="Time on Bench">${formatTime(secondaryTimes[p.id])}</span>`;
+            }
         }
 
         div.innerHTML = `
             <span class="player-name">${p.name}</span>
             ${posHtml}
             <span class="player-time ${isRunning ? 'pulsing' : ''}" title="Total Time">${formatTime(times[p.id])}</span>
-            ${stintHtml}
+            ${secondaryHtml}
             <button class="sub-btn ${p.onField ? 'btn-secondary' : 'btn-primary'}" data-id="${p.id}">${btnText}</button>
         `;
         container.appendChild(div);
