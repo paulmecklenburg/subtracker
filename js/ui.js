@@ -2,8 +2,8 @@
 import { POSITIONS, BENCH, posData, escapeHtml, formatTime } from './positions.js';
 import { getLiveTimes } from './state.js';
 import {
-    getCurrentSlot, getPlannedSlot, getPlannedChanges,
-    getSortedOnField, getSortedBench, arePositionsActive,
+    getCurrentSlot, getPlannedSlot, getPlannedChanges, getPlanRows,
+    getSortedOnField, getSortedBench,
     freezeSortOrder, unfreezeSortOrder
 } from './plan.js';
 
@@ -20,6 +20,7 @@ const els = {
     adminContent: $('admin-content'),
     rosterList: $('roster-list'),
     playerNameInput: $('player-name'),
+    forcePositionsToggle: $('force-positions-toggle'),
     planSection: $('plan-section'),
     planBadge: $('plan-badge'),
     planContent: $('plan-content'),
@@ -31,28 +32,6 @@ const els = {
 
 export function isDragInProgress() {
     return dragState.activeId !== null;
-}
-
-// --- Plan row layout ---
-
-export function getPlanRows(state) {
-    if (arePositionsActive(state)) {
-        const rows = [
-            { id: 'Goalie', label: 'Goalie', class: 'pos-g' },
-            { id: 'Defense', label: 'Defense', class: 'pos-d' },
-            { id: 'Midfield', label: 'Midfield', class: 'pos-m' },
-            { id: 'Offense', label: 'Offense', class: 'pos-o' }
-        ];
-        if (state.roster.some(p => p.isPresent && (getCurrentSlot(p) === 'Unassigned' || getPlannedSlot(state, p) === 'Unassigned'))) {
-            rows.push({ id: 'Unassigned', label: 'Unassigned', class: 'pos-u' });
-        }
-        rows.push({ id: BENCH, label: 'Bench', class: 'plan-pos-tag-bench' });
-        return rows;
-    }
-    return [
-        { id: 'Unassigned', label: 'On Field', class: 'plan-pos-tag-field' },
-        { id: BENCH, label: 'Bench', class: 'plan-pos-tag-bench' }
-    ];
 }
 
 // --- Rendering ---
@@ -83,6 +62,8 @@ export function render(state, { updatePlanGrid = true } = {}) {
     renderPlayerList(els.onFieldList, state, onField, playerTimes, stintTimes, 'on-field-card', goalieTimes);
     renderPlayerList(els.benchList, state, bench, playerTimes, benchTimes, 'bench-card', goalieTimes);
     renderPlan(state, updatePlanGrid);
+
+    if (els.forcePositionsToggle) els.forcePositionsToggle.checked = !!state.forcePositions;
 
     // Admin roster (only rebuild when structure changes, not on clock ticks)
     if (updatePlanGrid) {

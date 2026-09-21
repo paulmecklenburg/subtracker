@@ -27,6 +27,7 @@ const els = {
     adminToggle: document.getElementById('admin-toggle'),
     adminContent: document.getElementById('admin-content'),
     playerNameInput: document.getElementById('player-name'),
+    forcePositionsToggle: document.getElementById('force-positions-toggle'),
     planHeader: document.getElementById('plan-header'),
     planExecuteBtn: document.getElementById('plan-execute-btn'),
     planResetBtn: document.getElementById('plan-reset-btn'),
@@ -149,6 +150,11 @@ els.playerNameInput.addEventListener('keydown', (e) => {
 });
 els.resetBtn.addEventListener('click', onResetGame);
 els.adminToggle.addEventListener('click', () => els.adminContent.classList.toggle('hidden'));
+if (els.forcePositionsToggle) els.forcePositionsToggle.addEventListener('change', (e) => {
+    state.forcePositions = e.target.checked;
+    persist();
+    rerender();
+});
 
 if (els.planHeader) els.planHeader.addEventListener('click', onTogglePlanExpanded);
 if (els.planExecuteBtn) els.planExecuteBtn.addEventListener('click', () => {

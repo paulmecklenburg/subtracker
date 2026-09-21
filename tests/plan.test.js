@@ -4,7 +4,7 @@ import { createInitialState, createPlayer, syncState } from '../js/state.js';
 import {
     getCurrentSlot, getPlannedSlot, getPlannedChanges, arePositionsActive,
     generateDefaultSubPlan, executeSubPlan, clearSubPlan, movePlayerInPlan,
-    getSortedOnField, getSortedBench,
+    getSortedOnField, getSortedBench, getPlanRows,
     freezeSortOrder, unfreezeSortOrder, isSortFrozen
 } from '../js/plan.js';
 import { BENCH } from '../js/positions.js';
@@ -57,6 +57,41 @@ test('arePositionsActive: true only when an on-field present player has a real p
     assert.equal(arePositionsActive(setup([['A', { onField: true, position: 'Unassigned' }]])), false);
     assert.equal(arePositionsActive(setup([['A', { onField: false, position: 'Defense' }]])), false);
     assert.equal(arePositionsActive(setup([['A', { onField: true, position: 'Defense' }]])), true);
+});
+
+// --- Plan rows ---
+
+test('getPlanRows collapses to On Field/Bench when no positions are active', () => {
+    const state = setup([['A', { onField: true, position: 'Unassigned' }], ['B', { onField: false }]]);
+    const ids = getPlanRows(state).map(r => r.id);
+    assert.deepEqual(ids, ['Unassigned', BENCH]);
+});
+
+test('getPlanRows shows full layout when positions are active', () => {
+    const state = setup([
+        ['A', { onField: true, position: 'Defense' }],
+        ['B', { onField: false }]
+    ]);
+    const ids = getPlanRows(state).map(r => r.id);
+    assert.deepEqual(ids, ['Goalie', 'Defense', 'Midfield', 'Offense', BENCH]);
+});
+
+test('getPlanRows forcePositions shows full layout even with no positions assigned', () => {
+    const state = setup([
+        ['A', { onField: true, position: 'Unassigned' }],
+        ['B', { onField: false }]
+    ]);
+    state.forcePositions = true;
+    // On-field player is Unassigned, so that row is still included.
+    const ids = getPlanRows(state).map(r => r.id);
+    assert.deepEqual(ids, ['Goalie', 'Defense', 'Midfield', 'Offense', 'Unassigned', BENCH]);
+});
+
+test('getPlanRows forcePositions with everyone on bench: G/D/M/O plus Bench only', () => {
+    const state = setup([['A', { onField: false }], ['B', { onField: false }]]);
+    state.forcePositions = true;
+    const ids = getPlanRows(state).map(r => r.id);
+    assert.deepEqual(ids, ['Goalie', 'Defense', 'Midfield', 'Offense', BENCH]);
 });
 
 test('generateDefaultSubPlan without positions: swaps most-tired on-field with longest-benched', () => {

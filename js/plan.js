@@ -130,6 +130,31 @@ export function clearSubPlan(state) {
     return state;
 }
 
+// --- Plan row layout ---
+
+// Which rows the substitution plan shows. When no positions are in use the
+// plan collapses to On Field/Bench, unless forcePositions asks for the full
+// Goalie/Defense/Midfield/Offense layout (e.g. during initial game setup).
+export function getPlanRows(state) {
+    if (arePositionsActive(state) || state.forcePositions) {
+        const rows = [
+            { id: 'Goalie', label: 'Goalie', class: 'pos-g' },
+            { id: 'Defense', label: 'Defense', class: 'pos-d' },
+            { id: 'Midfield', label: 'Midfield', class: 'pos-m' },
+            { id: 'Offense', label: 'Offense', class: 'pos-o' }
+        ];
+        if (state.roster.some(p => p.isPresent && (getCurrentSlot(p) === 'Unassigned' || getPlannedSlot(state, p) === 'Unassigned'))) {
+            rows.push({ id: 'Unassigned', label: 'Unassigned', class: 'pos-u' });
+        }
+        rows.push({ id: BENCH, label: 'Bench', class: 'plan-pos-tag-bench' });
+        return rows;
+    }
+    return [
+        { id: 'Unassigned', label: 'On Field', class: 'plan-pos-tag-field' },
+        { id: BENCH, label: 'Bench', class: 'plan-pos-tag-bench' }
+    ];
+}
+
 // --- Sorting helpers ---
 
 // While the position dialog is open, list orders are pinned so rows don't

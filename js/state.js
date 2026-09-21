@@ -11,7 +11,8 @@ export function createInitialState() {
         lastUpdate: Date.now(),
         roster: [],
         subPlan: null,
-        planExpanded: false
+        planExpanded: false,
+        forcePositions: false
     };
 }
 
@@ -59,6 +60,7 @@ export function loadState(storage = localStorage, now = Date.now()) {
         state.subPlan = null;
     }
     if (state.planExpanded === undefined) state.planExpanded = false;
+    if (state.forcePositions === undefined) state.forcePositions = false;
 
     // Migration: ensure all players have needed properties.
     state.roster.forEach(p => {

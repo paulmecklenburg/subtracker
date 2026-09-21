@@ -281,3 +281,19 @@ test('loadState: migrates legacy players missing fields', () => {
     assert.equal(p.position, 'Unassigned');
     assert.equal(p.onField, false);
 });
+
+test('loadState: defaults forcePositions to false for legacy saves', () => {
+    const storage = fakeStorage();
+    storage.setItem('subtracker_state', JSON.stringify({
+        gameRunning: false,
+        accumulatedGameTime: 0,
+        lastSyncTimestamp: null,
+        roster: []
+    }));
+    const loaded = loadState(storage);
+    assert.equal(loaded.forcePositions, false);
+
+    // Round-trip: an explicitly enabled toggle persists.
+    storage.setItem('subtracker_state', JSON.stringify({ roster: [], forcePositions: true }));
+    assert.equal(loadState(storage).forcePositions, true);
+});
