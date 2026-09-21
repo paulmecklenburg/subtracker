@@ -196,8 +196,12 @@ export function togglePresence(state, id, now = Date.now()) {
     if (state.subPlan && state.subPlan[id] !== undefined) delete state.subPlan[id];
     if (!player.isPresent) {
         player.onField = false;
-    } else if (state.accumulatedGameTime > 0) {
-        player.lastSubOutGameTime = state.accumulatedGameTime;
+    } else {
+        player.currentStintTime = 0;
+        player.position = 'Unassigned';
+        if (state.accumulatedGameTime > 0) {
+            player.lastSubOutGameTime = state.accumulatedGameTime;
+        }
     }
     return state;
 }
@@ -218,6 +222,9 @@ export function subPlayer(state, id, now = Date.now(), benchResetMs = BENCH_STIN
         player.lastSubOutGameTime = state.accumulatedGameTime;
     }
     player.onField = nextOnField;
+    if (state.subPlan && state.subPlan[id] !== undefined) {
+        delete state.subPlan[id];
+    }
     return state;
 }
 

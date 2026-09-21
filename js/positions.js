@@ -8,7 +8,7 @@ export const POS_MAP = {
     'Defense': { short: 'D', class: 'pos-d', color: '#2980b9' },
     'Midfield': { short: 'M', class: 'pos-m', color: '#27ae60' },
     'Offense': { short: 'O', class: 'pos-o', color: '#c0392b' },
-    'Bench': { short: 'B', class: 'pos-bench', color: '#e74c3c' }
+    'Bench': { short: 'B', class: 'pos-bench', color: '#3498db' }
 };
 
 export function posData(position) {

@@ -6,17 +6,16 @@ import {
 import { createPlayer } from './state.js';
 import {
     generateDefaultSubPlan, executeSubPlan, clearSubPlan, movePlayerInPlan,
-    getSortedOnField
+    getSortedOnField, getPlannedChanges
 } from './plan.js';
 import {
     render, initPositionDialog, redrawArrows, initPlanResizeObserver,
-    isDragInProgress, bindStateRef, setPlanMoveHandler, setDialogClosedHandler
+    isDragInProgress, bindStateRef, setPlanMoveHandler
 } from './ui.js';
 
 let state = loadState();
 bindStateRef(state);
 setPlanMoveHandler(onMoveInPlan);
-setDialogClosedHandler(rerender);
 
 const els = {
     toggleBtn: document.getElementById('toggle-btn'),
@@ -79,6 +78,7 @@ function onAddPlayer() {
 
 function onRemovePlayer(id) {
     if (!confirm('Remove player from roster?')) return;
+    syncState(state);
     state.roster = state.roster.filter(p => p.id !== id);
     if (state.subPlan && state.subPlan[id] !== undefined) delete state.subPlan[id];
     persist();
@@ -87,6 +87,9 @@ function onRemovePlayer(id) {
 
 function onSubPlayer(id) {
     subPlayer(state, id);
+    if (state.subPlan && getPlannedChanges(state).length === 0) {
+        clearSubPlan(state);
+    }
     persist();
     rerender();
 }
@@ -99,14 +102,14 @@ function onResetGame() {
 }
 
 // Flash players whose on-field ordering changed as a result of `action`.
-// ignoreSortFreeze computes against live sort even while orders are pinned.
-function withReorderFlash(action, ignoreSortFreeze = false) {
-    const { stintTimes } = getLiveTimes(state);
-    const before = getSortedOnField(state, stintTimes, { ignoreFreeze: ignoreSortFreeze }).map(p => p.id);
+// Times are derived fresh on both sides so the comparison reflects the state
+// at each point, even if `action` syncs the clock or accrues time.
+function withReorderFlash(action) {
+    const before = getSortedOnField(state, getLiveTimes(state).stintTimes).map(p => p.id);
 
     action();
 
-    const after = getSortedOnField(state, stintTimes, { ignoreFreeze: ignoreSortFreeze }).map(p => p.id);
+    const after = getSortedOnField(state, getLiveTimes(state).stintTimes).map(p => p.id);
     if (JSON.stringify(before) !== JSON.stringify(after)) {
         after.forEach((id, index) => {
             if (before[index] !== id) {
@@ -122,9 +125,9 @@ function onSetPosition(id, pos) {
     if (!player) return;
     withReorderFlash(() => {
         player.position = pos;
-    }, true);
+    });
     persist();
-    // Re-render happens when the dialog closes and sorting resumes.
+    rerender();
 }
 
 function onTogglePlanExpanded() {

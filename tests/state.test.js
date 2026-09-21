@@ -120,6 +120,30 @@ test('togglePresence on on-field player does not lose accrued time', () => {
     assert.equal(state.roster[0].totalPlayTime, 9000);
 });
 
+test('togglePresence on absent player mid-match resets stint and position', () => {
+    const clock = fakeClock();
+    const state = createInitialState();
+    const p = makePlayer('A', { isPresent: false, onField: false, currentStintTime: 25000, position: 'Defense' });
+    state.roster = [p];
+    state.accumulatedGameTime = 60000;
+    togglePresence(state, p.id, clock.now());
+    assert.equal(p.isPresent, true);
+    assert.equal(p.currentStintTime, 0);
+    assert.equal(p.position, 'Unassigned');
+    assert.equal(p.lastSubOutGameTime, 60000);
+});
+
+test('subPlayer clears pending plan entry for the subbed player', () => {
+    const clock = fakeClock();
+    const state = createInitialState();
+    const p = makePlayer('A', { onField: true, position: 'Defense' });
+    state.roster = [p];
+    state.subPlan = { [p.id]: 'Bench' };
+    subPlayer(state, p.id, clock.now());
+    assert.equal(p.onField, false);
+    assert.equal(state.subPlan[p.id], undefined);
+});
+
 test('subPlayer: subbing in after short bench keeps stint and position', () => {
     const clock = fakeClock();
     const state = createInitialState();

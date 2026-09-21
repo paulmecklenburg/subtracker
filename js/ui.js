@@ -3,8 +3,7 @@ import { POSITIONS, BENCH, posData, escapeHtml, formatTime } from './positions.j
 import { getLiveTimes } from './state.js';
 import {
     getCurrentSlot, getPlannedSlot, getPlannedChanges, getPlanRows,
-    getSortedOnField, getSortedBench,
-    freezeSortOrder, unfreezeSortOrder
+    getSortedOnField, getSortedBench, arePositionsActive
 } from './plan.js';
 
 const $ = id => document.getElementById(id);
@@ -19,7 +18,6 @@ const els = {
     adminToggle: $('admin-toggle'),
     adminContent: $('admin-content'),
     rosterList: $('roster-list'),
-    playerNameInput: $('player-name'),
     planSection: $('plan-section'),
     planBadge: $('plan-badge'),
     planContent: $('plan-content'),
@@ -47,7 +45,6 @@ export function render(state, { updatePlanGrid = true } = {}) {
 
     if (onField.length > 0) {
         els.onFieldHeader.classList.remove('hidden');
-        els.onFieldHeader.classList.add('has-stint');
     } else {
         els.onFieldHeader.classList.add('hidden');
     }
@@ -124,7 +121,6 @@ function renderPlayerList(container, state, players, times, secondaryTimes, card
             const pos = posData(p.position);
             posHtml = `<div class="pos-btn ${pos.class}" data-id="${p.id}">${pos.short}</div>`;
             secondaryHtml = `<span class="player-time stint-time" title="Current Stint">${formatTime(secondaryTimes[p.id])}</span>`;
-            div.classList.add('has-stint');
         } else {
             secondaryHtml = `<span class="player-time bench-time" title="Time on Bench">${formatTime(secondaryTimes[p.id])}</span>`;
         }
@@ -223,9 +219,11 @@ function drawPlanArrows(state) {
 
         const dx = Math.max(25, (x2 - x1) * 0.45);
         const targetPos = getPlannedSlot(state, p);
-        const color = posData(targetPos).color;
+        const isCollapsedField = targetPos === 'Unassigned' && !arePositionsActive(state) && !state.forcePositions;
+        const color = isCollapsedField ? '#2ecc71' : posData(targetPos).color;
+        const markerId = isCollapsedField ? 'field' : targetPos.toLowerCase();
 
-        pathsHtml += `<path d="M ${x1.toFixed(1)} ${y1.toFixed(1)} C ${(x1 + dx).toFixed(1)} ${y1.toFixed(1)}, ${(x2 - dx).toFixed(1)} ${y2.toFixed(1)}, ${x2.toFixed(1)} ${y2.toFixed(1)}" class="plan-arrow-path" stroke="${color}" marker-end="url(#arrow-${targetPos.toLowerCase()})"/>`;
+        pathsHtml += `<path d="M ${x1.toFixed(1)} ${y1.toFixed(1)} C ${(x1 + dx).toFixed(1)} ${y1.toFixed(1)}, ${(x2 - dx).toFixed(1)} ${y2.toFixed(1)}, ${x2.toFixed(1)} ${y2.toFixed(1)}" class="plan-arrow-path" stroke="${color}" marker-end="url(#arrow-${markerId})"/>`;
     });
 
     const pathsGroup = els.planArrowsPaths || els.planArrowsSvg.querySelector('#plan-arrows-paths');
@@ -341,12 +339,14 @@ function handleTouchStart(e, chip, onMove) {
         }
         chip.classList.remove('dragging');
 
-        if (isDragging) {
+        if (isDragging && endEvent.type !== 'touchcancel') {
             const endTouch = endEvent.changedTouches[0];
             const elemUnder = document.elementFromPoint(endTouch.clientX, endTouch.clientY);
             const zone = elemUnder ? elemUnder.closest('.plan-drop-zone') : null;
             els.planGrid.querySelectorAll('.plan-drop-zone').forEach(z => z.classList.remove('drag-over'));
             if (zone && dragState.activeId) onMove(dragState.activeId, zone.dataset.pos);
+        } else {
+            els.planGrid.querySelectorAll('.plan-drop-zone').forEach(z => z.classList.remove('drag-over'));
         }
         dragState.activeId = null;
     }
@@ -365,22 +365,22 @@ const dialog = {
     closeBtn: $('close-dialog')
 };
 
-// Called after the dialog closes so main can re-render with sorting resumed.
-let dialogClosedHandler = () => {};
-export function setDialogClosedHandler(fn) {
-    dialogClosedHandler = fn;
-}
-
 export function initPositionDialog(onSet) {
     dialog.closeBtn.onclick = () => dialog.el.close();
 
-    // One unfreeze point for every close path (select, Cancel button, Esc).
-    dialog.el.addEventListener('close', () => {
-        unfreezeSortOrder();
-        dialogClosedHandler();
+    // Close when tapping the backdrop outside dialog contents.
+    dialog.el.addEventListener('click', (e) => {
+        const rect = dialog.el.getBoundingClientRect();
+        const isInDialog = (
+            rect.top <= e.clientY && e.clientY <= rect.top + rect.height &&
+            rect.left <= e.clientX && e.clientX <= rect.left + rect.width
+        );
+        if (!isInDialog) {
+            dialog.el.close();
+        }
     });
 
-    // Single tap opens the picker; no cycling, so the row never moves mid-edit.
+    // Single tap opens the picker.
     document.addEventListener('click', (e) => {
         if (e.target.classList.contains('pos-btn')) {
             openPositionDialog(e.target.dataset.id, onSet);
@@ -391,16 +391,18 @@ export function initPositionDialog(onSet) {
 function openPositionDialog(id, onSet) {
     const player = currentRosterRef.roster.find(p => p.id === id);
     if (!player) return;
-    freezeSortOrder(currentRosterRef);
 
     if (dialog.title) dialog.title.textContent = `Configuring: ${player.name}`;
     dialog.options.innerHTML = '';
     POSITIONS.forEach(pos => {
         const btn = document.createElement('button');
+        const isSelected = player.position === pos;
         btn.innerHTML = pos === 'Unassigned'
             ? `<strong>-</strong> Unassigned`
             : `<strong>${pos.charAt(0)}</strong> ${pos.slice(1)}`;
-        if (player.position === pos) btn.style.borderColor = 'var(--primary)';
+        if (isSelected) {
+            btn.classList.add('selected');
+        }
         btn.onclick = () => {
             onSet(id, pos);
             dialog.el.close();

@@ -36,6 +36,21 @@ export function movePlayerInPlan(state, playerId, newPos) {
     return state;
 }
 
+// Plan a line's next stint: longest-stint players out to Bench, bench players
+// in at Defense, then shift players up one line to backfill. All shifts move
+// an equal number of players (limited by each line's capacity) so line counts
+// stay balanced.
+function subOutLine(plan, line, bench, shifters) {
+    const numSubs = Math.min(line.length, bench.length);
+    const subsOut = line.slice(0, numSubs);
+    subsOut.forEach(p => { plan[p.id] = BENCH; });
+    bench.slice(0, numSubs).forEach(p => { plan[p.id] = 'Defense'; });
+
+    const notSubbedOut = players => players.filter(p => !subsOut.includes(p));
+    const numShift = Math.min(numSubs, ...shifters.map(s => notSubbedOut(s.players).length));
+    shifters.forEach(s => notSubbedOut(s.players).slice(0, numShift).forEach(p => { plan[p.id] = s.to; }));
+}
+
 // Auto-rotate: tired players off, rested players on, field shifts up one line.
 export function generateDefaultSubPlan(state) {
     syncState(state);
@@ -50,32 +65,34 @@ export function generateDefaultSubPlan(state) {
 
     if (onField.length > 0 && bench.length > 0) {
         if (arePositionsActive(state)) {
-            const offensePlayers = onField.filter(p => p.position === 'Offense')
-                .sort((a, b) => (stintTimes[b.id] || 0) - (stintTimes[a.id] || 0));
-            const eligibleOnField = onField.filter(p => p.position !== 'Goalie')
-                .sort((a, b) => (stintTimes[b.id] || 0) - (stintTimes[a.id] || 0));
+            const byLongestStint = list =>
+                list.sort((a, b) => (stintTimes[b.id] || 0) - (stintTimes[a.id] || 0));
+            const offensePlayers = byLongestStint(onField.filter(p => p.position === 'Offense'));
+            const midfieldPlayers = byLongestStint(onField.filter(p => p.position === 'Midfield'));
+            const defensePlayers = byLongestStint(onField.filter(p => p.position === 'Defense'));
 
-            const candidateOut = offensePlayers.length > 0 ? offensePlayers : eligibleOnField;
-            const numSubs = Math.min(candidateOut.length, bench.length);
-            const subsOut = candidateOut.slice(0, numSubs);
-            const subsIn = bench.slice(0, numSubs);
+            // Sub out the forward-most line that has players.
+            const subbedLine = offensePlayers.length > 0 ? offensePlayers
+                : midfieldPlayers.length > 0 ? midfieldPlayers
+                : defensePlayers.length > 0 ? defensePlayers
+                : null;
 
-            subsOut.forEach(p => { plan[p.id] = BENCH; });
-            subsIn.forEach(p => { plan[p.id] = 'Defense'; });
-
-            // Field shifts: Defense -> Midfield, Midfield -> Offense (Goalie and Unassigned remain).
-            // Shift up to numSubs from Defense -> Midfield and Midfield -> Offense (longest stints first).
-            const defenseToShift = onField
-                .filter(p => p.position === 'Defense' && !subsOut.some(s => s.id === p.id))
-                .sort((a, b) => (stintTimes[b.id] || 0) - (stintTimes[a.id] || 0))
-                .slice(0, numSubs);
-            const midfieldToShift = onField
-                .filter(p => p.position === 'Midfield' && !subsOut.some(s => s.id === p.id))
-                .sort((a, b) => (stintTimes[b.id] || 0) - (stintTimes[a.id] || 0))
-                .slice(0, numSubs);
-
-            defenseToShift.forEach(p => { plan[p.id] = 'Midfield'; });
-            midfieldToShift.forEach(p => { plan[p.id] = 'Offense'; });
+            if (subbedLine) {
+                // Backfill the subbed line from the line below it; when the
+                // subbed line is Offense, Midfield is backfilled from Defense
+                // in the same proportion.
+                const shifters = subbedLine === offensePlayers
+                    ? [{ players: defensePlayers, to: 'Midfield' }, { players: midfieldPlayers, to: 'Offense' }]
+                    : subbedLine === midfieldPlayers
+                        ? [{ players: defensePlayers, to: 'Midfield' }]
+                        : [];
+                subOutLine(plan, subbedLine, bench, shifters);
+            } else {
+                const eligibleOnField = byLongestStint(onField.filter(p => p.position !== 'Goalie'));
+                const numSubs = Math.min(eligibleOnField.length, bench.length);
+                eligibleOnField.slice(0, numSubs).forEach(p => { plan[p.id] = BENCH; });
+                bench.slice(0, numSubs).forEach(p => { plan[p.id] = 'Unassigned'; });
+            }
         } else {
             // Positions not actively in use: rotate onField <-> Bench.
             const numSubs = Math.min(onField.length, bench.length);
@@ -157,41 +174,7 @@ export function getPlanRows(state) {
 
 // --- Sorting helpers ---
 
-// While the position dialog is open, list orders are pinned so rows don't
-// jump around between decisions. Sorting resumes when the dialog closes.
-let sortFreeze = null;
-
-export function freezeSortOrder(state) {
-    sortFreeze = {
-        onField: state.roster.filter(p => p.onField && p.isPresent).map(p => p.id),
-        bench: state.roster.filter(p => !p.onField && p.isPresent).map(p => p.id)
-    };
-    return state;
-}
-
-export function unfreezeSortOrder() {
-    sortFreeze = null;
-}
-
-export function isSortFrozen() {
-    return sortFreeze !== null;
-}
-
-// Replay a frozen ordering, then append any new matching players (roster
-// order) so rows can vanish only if they truly left the slot, never if they
-// merely were unknown when the order was captured.
-function inFrozenOrder(state, ids, predicate) {
-    const byId = new Map(state.roster.map(p => [p.id, p]));
-    const ordered = ids.map(id => byId.get(id)).filter(p => p && predicate(p));
-    const seen = new Set(ordered.map(p => p.id));
-    const extras = state.roster.filter(p => predicate(p) && !seen.has(p.id));
-    return [...ordered, ...extras];
-}
-
-export function getSortedOnField(state, stintTimes, { ignoreFreeze = false } = {}) {
-    if (sortFreeze && !ignoreFreeze) {
-        return inFrozenOrder(state, sortFreeze.onField, p => p.onField && p.isPresent);
-    }
+export function getSortedOnField(state, stintTimes) {
     return state.roster.filter(p => p.onField && p.isPresent)
         .slice()
         .sort((a, b) => {
@@ -202,10 +185,7 @@ export function getSortedOnField(state, stintTimes, { ignoreFreeze = false } = {
         });
 }
 
-export function getSortedBench(state, playerTimes, benchTimes, { ignoreFreeze = false } = {}) {
-    if (sortFreeze && !ignoreFreeze) {
-        return inFrozenOrder(state, sortFreeze.bench, p => !p.onField && p.isPresent);
-    }
+export function getSortedBench(state, playerTimes, benchTimes) {
     return state.roster.filter(p => !p.onField && p.isPresent)
         .slice()
         .sort((a, b) => {

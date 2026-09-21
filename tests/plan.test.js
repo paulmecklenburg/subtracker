@@ -4,8 +4,7 @@ import { createInitialState, createPlayer, syncState } from '../js/state.js';
 import {
     getCurrentSlot, getPlannedSlot, getPlannedChanges, arePositionsActive,
     generateDefaultSubPlan, executeSubPlan, clearSubPlan, movePlayerInPlan,
-    getSortedOnField, getSortedBench, getPlanRows,
-    freezeSortOrder, unfreezeSortOrder, isSortFrozen
+    getSortedOnField, getSortedBench, getPlanRows
 } from '../js/plan.js';
 import { BENCH } from '../js/positions.js';
 
@@ -168,6 +167,52 @@ test('generateDefaultSubPlan with positions: preserves line counts when fewer su
     assert.equal(byName['Goal'], 'Goalie');
 });
 
+test('generateDefaultSubPlan with positions: preserves line counts when defense has fewer players than midfield', () => {
+    const state = setup([
+        ['Off1', { onField: true, position: 'Offense', currentStintTime: 60000 }],
+        ['Off2', { onField: true, position: 'Offense', currentStintTime: 50000 }],
+        ['Off3', { onField: true, position: 'Offense', currentStintTime: 40000 }],
+        ['Mid1', { onField: true, position: 'Midfield', currentStintTime: 35000 }],
+        ['Mid2', { onField: true, position: 'Midfield', currentStintTime: 30000 }],
+        ['Mid3', { onField: true, position: 'Midfield', currentStintTime: 25000 }],
+        ['Def1', { onField: true, position: 'Defense', currentStintTime: 20000 }],
+        ['Bench1', { onField: false, lastSubOutGameTime: 0 }],
+        ['Bench2', { onField: false, lastSubOutGameTime: 1000 }]
+    ]);
+    state.accumulatedGameTime = 60000;
+    generateDefaultSubPlan(state);
+    const byName = Object.fromEntries(state.roster.map(p => [p.name, state.subPlan[p.id]]));
+    // numSubs = 2 (Off1, Off2 out, Bench1, Bench2 in)
+    assert.equal(byName['Off1'], BENCH);
+    assert.equal(byName['Off2'], BENCH);
+    // Defense only has 1 player (Def1) to shift, so Midfield only shifts 1 (Mid1) to Offense
+    assert.equal(byName['Def1'], 'Midfield');
+    assert.equal(byName['Mid1'], 'Offense');
+    assert.equal(byName['Mid2'], 'Midfield'); // stays on Midfield
+    assert.equal(byName['Mid3'], 'Midfield'); // stays on Midfield
+});
+
+test('generateDefaultSubPlan with positions: rotates forward lines when offense is empty', () => {
+    const state = setup([
+        ['Mid1', { onField: true, position: 'Midfield', currentStintTime: 40000 }],
+        ['Mid2', { onField: true, position: 'Midfield', currentStintTime: 30000 }],
+        ['Def1', { onField: true, position: 'Defense', currentStintTime: 20000 }],
+        ['Def2', { onField: true, position: 'Defense', currentStintTime: 10000 }],
+        ['Bench1', { onField: false, lastSubOutGameTime: 0 }]
+    ]);
+    state.accumulatedGameTime = 40000;
+    generateDefaultSubPlan(state);
+    const byName = Object.fromEntries(state.roster.map(p => [p.name, state.subPlan[p.id]]));
+    // Mid1 (longest stint in forward-most line) goes to Bench
+    assert.equal(byName['Mid1'], BENCH);
+    assert.equal(byName['Mid2'], 'Midfield');
+    // Bench1 enters Defense
+    assert.equal(byName['Bench1'], 'Defense');
+    // Def1 shifts to Midfield
+    assert.equal(byName['Def1'], 'Midfield');
+    assert.equal(byName['Def2'], 'Defense');
+});
+
 test('movePlayerInPlan creates plan lazily covering all present players', () => {
     const state = setup([
         ['A', { onField: true, position: 'Defense' }],
@@ -239,60 +284,4 @@ test('getSortedBench: longest bench first, then least play time, then name', () 
     const times = { [state.roster[0].id]: 0, [state.roster[1].id]: 0, [state.roster[2].id]: 50000 };
     const sorted = getSortedBench(state, times, bench);
     assert.deepEqual(sorted.map(p => p.name), ['Amy', 'Zed', 'Bob']);
-});
-
-// --- Sort freeze (position dialog) ---
-
-function freezeFixture() {
-    const state = setup([
-        ['MidOld', { onField: true, position: 'Midfield', currentStintTime: 90000 }],
-        ['DefNew', { onField: true, position: 'Defense', currentStintTime: 1000 }],
-        ['Bench1', { onField: false, lastSubOutGameTime: 0 }]
-    ]);
-    const stint = Object.fromEntries(state.roster.map(p => [p.id, p.currentStintTime]));
-    const times = Object.fromEntries(state.roster.map(p => [p.id, 0]));
-    const bench = Object.fromEntries(state.roster.map(p => [p.id, 0]));
-    return { state, stint, times, bench };
-}
-
-test('freezeSortOrder pins both lists while positions are configured', () => {
-    const { state, stint, times, bench } = freezeFixture();
-    try {
-        freezeSortOrder(state);
-        assert.equal(isSortFrozen(), true);
-        assert.deepEqual(getSortedOnField(state, stint).map(p => p.name), ['MidOld', 'DefNew']);
-        assert.deepEqual(getSortedBench(state, times, bench).map(p => p.name), ['Bench1']);
-    } finally {
-        unfreezeSortOrder();
-    }
-    assert.equal(isSortFrozen(), false);
-});
-
-test('frozen order ignores position changes until unfrozen', () => {
-    const { state, stint } = freezeFixture();
-    try {
-        freezeSortOrder(state);
-        state.roster[1].position = 'Unassigned'; // live sort would reorder
-        const frozen = getSortedOnField(state, stint);
-        assert.deepEqual(frozen.map(p => p.name), ['MidOld', 'DefNew']);
-        const live = getSortedOnField(state, stint, { ignoreFreeze: true });
-        assert.deepEqual(live.map(p => p.name), ['DefNew', 'MidOld']);
-    } finally {
-        unfreezeSortOrder();
-    }
-    const sorted = getSortedOnField(state, stint);
-    assert.deepEqual(sorted.map(p => p.name), ['DefNew', 'MidOld']);
-});
-
-test('frozen order filters out players whose slot membership changed', () => {
-    const { state, stint, times, bench } = freezeFixture();
-    freezeSortOrder(state);
-    // Player is subbed out while frozen: frozen on-field list must drop them.
-    state.roster[1].onField = false;
-    const frozen = getSortedOnField(state, stint);
-    assert.deepEqual(frozen.map(p => p.name), ['MidOld']);
-    // Bench keeps frozen order; the newly benched player is appended, not dropped.
-    const frozenBench = getSortedBench(state, times, bench);
-    assert.deepEqual(frozenBench.map(p => p.name), ['Bench1', 'DefNew']);
-    unfreezeSortOrder();
 });
