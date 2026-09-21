@@ -34,6 +34,9 @@ const els = {
     planClearBtn: document.getElementById('plan-clear-btn')
 };
 
+// One-time sync of form controls that reflect persisted preferences.
+els.forcePositionsToggle.checked = !!state.forcePositions;
+
 function persist() {
     saveState(state);
 }
@@ -150,24 +153,24 @@ els.playerNameInput.addEventListener('keydown', (e) => {
 });
 els.resetBtn.addEventListener('click', onResetGame);
 els.adminToggle.addEventListener('click', () => els.adminContent.classList.toggle('hidden'));
-if (els.forcePositionsToggle) els.forcePositionsToggle.addEventListener('change', (e) => {
+els.forcePositionsToggle.addEventListener('change', (e) => {
     state.forcePositions = e.target.checked;
     persist();
     rerender();
 });
 
-if (els.planHeader) els.planHeader.addEventListener('click', onTogglePlanExpanded);
-if (els.planExecuteBtn) els.planExecuteBtn.addEventListener('click', () => {
+els.planHeader.addEventListener('click', onTogglePlanExpanded);
+els.planExecuteBtn.addEventListener('click', () => {
     executeSubPlan(state);
     persist();
     rerender();
 });
-if (els.planResetBtn) els.planResetBtn.addEventListener('click', () => {
+els.planResetBtn.addEventListener('click', () => {
     generateDefaultSubPlan(state);
     persist();
     rerender();
 });
-if (els.planClearBtn) els.planClearBtn.addEventListener('click', () => {
+els.planClearBtn.addEventListener('click', () => {
     clearSubPlan(state);
     persist();
     rerender();

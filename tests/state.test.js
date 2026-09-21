@@ -183,16 +183,18 @@ test('adjustAllTimes: fast forward adds to on-field clocks', () => {
     assert.equal(state.roster[1].goaliePlayTime, 0);
 });
 
-test('resetTimes zeroes everything but keeps roster', () => {
+test('resetTimes zeroes everything but keeps roster and preferences', () => {
     const state = createInitialState();
     state.roster = [makePlayer('A', { onField: true, totalPlayTime: 999, position: 'Offense' })];
     state.gameRunning = true;
     state.accumulatedGameTime = 999;
     state.subPlan = { [state.roster[0].id]: 'Bench' };
+    state.forcePositions = true;
     resetTimes(state);
     assert.equal(state.gameRunning, false);
     assert.equal(state.accumulatedGameTime, 0);
     assert.equal(state.subPlan, null);
+    assert.equal(state.forcePositions, true);
     assert.equal(state.roster.length, 1);
     assert.equal(state.roster[0].totalPlayTime, 0);
     assert.equal(state.roster[0].onField, false);
@@ -293,7 +295,8 @@ test('loadState: defaults forcePositions to false for legacy saves', () => {
     const loaded = loadState(storage);
     assert.equal(loaded.forcePositions, false);
 
-    // Round-trip: an explicitly enabled toggle persists.
-    storage.setItem('subtracker_state', JSON.stringify({ roster: [], forcePositions: true }));
+    // Round-trip: an explicitly enabled toggle persists via a plain load
+    // (lastUpdate recent, so the 24h auto-reset branch is not taken).
+    storage.setItem('subtracker_state', JSON.stringify({ roster: [], forcePositions: true, lastUpdate: Date.now() }));
     assert.equal(loadState(storage).forcePositions, true);
 });

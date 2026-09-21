@@ -60,7 +60,7 @@ export function loadState(storage = localStorage, now = Date.now()) {
         state.subPlan = null;
     }
     if (state.planExpanded === undefined) state.planExpanded = false;
-    if (state.forcePositions === undefined) state.forcePositions = false;
+    state.forcePositions = !!state.forcePositions;
 
     // Migration: ensure all players have needed properties.
     state.roster.forEach(p => {

@@ -20,7 +20,6 @@ const els = {
     adminContent: $('admin-content'),
     rosterList: $('roster-list'),
     playerNameInput: $('player-name'),
-    forcePositionsToggle: $('force-positions-toggle'),
     planSection: $('plan-section'),
     planBadge: $('plan-badge'),
     planContent: $('plan-content'),
@@ -62,8 +61,6 @@ export function render(state, { updatePlanGrid = true } = {}) {
     renderPlayerList(els.onFieldList, state, onField, playerTimes, stintTimes, 'on-field-card', goalieTimes);
     renderPlayerList(els.benchList, state, bench, playerTimes, benchTimes, 'bench-card', goalieTimes);
     renderPlan(state, updatePlanGrid);
-
-    if (els.forcePositionsToggle) els.forcePositionsToggle.checked = !!state.forcePositions;
 
     // Admin roster (only rebuild when structure changes, not on clock ticks)
     if (updatePlanGrid) {
