@@ -1,7 +1,7 @@
 // App entry point: wires state logic to the UI. Loaded as ES module from index.html.
 import {
     loadState, saveState, resetTimes, syncState, getLiveTimes, toggleClock,
-    togglePresence, subPlayer, adjustAllTimes, STEP_MS
+    togglePresence, subPlayer, setPlayerPosition, adjustAllTimes, STEP_MS
 } from './state.js';
 import { createPlayer } from './state.js';
 import {
@@ -27,6 +27,7 @@ const els = {
     adminContent: document.getElementById('admin-content'),
     playerNameInput: document.getElementById('player-name'),
     forcePositionsToggle: document.getElementById('force-positions-toggle'),
+    disableAutoAdvanceToggle: document.getElementById('disable-auto-advance-toggle'),
     planHeader: document.getElementById('plan-header'),
     planExecuteBtn: document.getElementById('plan-execute-btn'),
     planResetBtn: document.getElementById('plan-reset-btn'),
@@ -35,6 +36,7 @@ const els = {
 
 // One-time sync of form controls that reflect persisted preferences.
 els.forcePositionsToggle.checked = !!state.forcePositions;
+els.disableAutoAdvanceToggle.checked = !!state.disableAutoAdvance;
 
 function persist() {
     saveState(state);
@@ -124,15 +126,18 @@ function onSetPosition(id, pos) {
     const player = state.roster.find(p => p.id === id);
     if (!player) return;
     withReorderFlash(() => {
-        player.position = pos;
+        setPlayerPosition(state, id, pos);
     });
+    if (state.subPlan && getPlannedChanges(state).length === 0) {
+        clearSubPlan(state);
+    }
     persist();
     rerender();
 }
 
 function onTogglePlanExpanded() {
     state.planExpanded = !state.planExpanded;
-    if (state.planExpanded && !state.subPlan) {
+    if (state.planExpanded && !state.subPlan && !state.disableAutoAdvance) {
         generateDefaultSubPlan(state);
     }
     persist();
@@ -158,6 +163,11 @@ els.resetBtn.addEventListener('click', onResetGame);
 els.adminToggle.addEventListener('click', () => els.adminContent.classList.toggle('hidden'));
 els.forcePositionsToggle.addEventListener('change', (e) => {
     state.forcePositions = e.target.checked;
+    persist();
+    rerender();
+});
+els.disableAutoAdvanceToggle.addEventListener('change', (e) => {
+    state.disableAutoAdvance = e.target.checked;
     persist();
     rerender();
 });

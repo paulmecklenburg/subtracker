@@ -1,6 +1,9 @@
 // Substitution plan logic. Pure state mutations; callers persist + render.
-import { BENCH, POSITIONS } from './positions.js';
+import { BENCH, POSITIONS, SINGLE_PLAYER_POSITIONS } from './positions.js';
 import { getLiveTimes, syncState, BENCH_STINT_RESET_MS } from './state.js';
+
+const LEFT_SIDE = ['Defense Left', 'Midfield Left', 'Offense Left'];
+const RIGHT_SIDE = ['Defense Right', 'Midfield Right', 'Offense Right'];
 
 export function getCurrentSlot(p) {
     return p.onField ? (p.position || 'Unassigned') : BENCH;
@@ -31,27 +34,54 @@ function ensurePlan(state) {
     return state.subPlan;
 }
 
+// Assign a player to a position in the plan. If the target is a single-player
+// on-field position, any present player currently planned for that slot is
+// automatically unassigned to off-field (Bench).
 export function movePlayerInPlan(state, playerId, newPos) {
-    ensurePlan(state)[playerId] = newPos;
+    const plan = ensurePlan(state);
+    if (SINGLE_PLAYER_POSITIONS.includes(newPos)) {
+        state.roster.forEach(p => {
+            if (p.isPresent && p.id !== playerId && getPlannedSlot(state, p) === newPos) {
+                plan[p.id] = BENCH;
+            }
+        });
+    }
+    plan[playerId] = newPos;
     return state;
 }
 
-// Plan a line's next stint: longest-stint players out to Bench, bench players
-// in at Defense, then shift players up one line to backfill. All shifts move
-// an equal number of players (limited by each line's capacity) so line counts
-// stay balanced.
-function subOutLine(plan, line, bench, shifters) {
-    const numSubs = Math.min(line.length, bench.length);
-    const subsOut = line.slice(0, numSubs);
-    subsOut.forEach(p => { plan[p.id] = BENCH; });
-    bench.slice(0, numSubs).forEach(p => { plan[p.id] = 'Defense'; });
-
-    const notSubbedOut = players => players.filter(p => !subsOut.includes(p));
-    const numShift = Math.min(numSubs, ...shifters.map(s => notSubbedOut(s.players).length));
-    shifters.forEach(s => notSubbedOut(s.players).slice(0, numShift).forEach(p => { plan[p.id] = s.to; }));
+function getSideOutgoing(onField, [defPos, midPos, offPos]) {
+    return onField.find(p => p.position === offPos)
+        || onField.find(p => p.position === midPos)
+        || onField.find(p => p.position === defPos)
+        || null;
 }
 
-// Auto-rotate: tired players off, rested players on, field shifts up one line.
+// Advance one side of the field: front-most occupied position goes to Bench,
+// remaining players on that side move forward one line without changing sides,
+// and the incoming bench player enters Defense on that side.
+function advanceSide(plan, onField, [defPos, midPos, offPos], benchPlayer) {
+    const defP = onField.find(p => p.position === defPos);
+    const midP = onField.find(p => p.position === midPos);
+    const offP = onField.find(p => p.position === offPos);
+
+    if (offP) {
+        plan[offP.id] = BENCH;
+        if (midP) plan[midP.id] = offPos;
+        if (defP) plan[defP.id] = midPos;
+        plan[benchPlayer.id] = defPos;
+    } else if (midP) {
+        plan[midP.id] = BENCH;
+        if (defP) plan[defP.id] = midPos;
+        plan[benchPlayer.id] = defPos;
+    } else if (defP) {
+        plan[defP.id] = BENCH;
+        plan[benchPlayer.id] = defPos;
+    }
+}
+
+// Auto-rotate: keep players on the same side of the field, sub in new players
+// at Defense Left/Right, and move existing field players forward one line.
 export function generateDefaultSubPlan(state) {
     syncState(state);
     const { playerTimes, stintTimes, benchTimes } = getLiveTimes(state);
@@ -63,32 +93,29 @@ export function generateDefaultSubPlan(state) {
         if (p.isPresent) plan[p.id] = getCurrentSlot(p);
     });
 
+    if (state.disableAutoAdvance) {
+        state.subPlan = plan;
+        return state;
+    }
+
     if (onField.length > 0 && bench.length > 0) {
         if (arePositionsActive(state)) {
-            const byLongestStint = list =>
-                list.sort((a, b) => (stintTimes[b.id] || 0) - (stintTimes[a.id] || 0));
-            const offensePlayers = byLongestStint(onField.filter(p => p.position === 'Offense'));
-            const midfieldPlayers = byLongestStint(onField.filter(p => p.position === 'Midfield'));
-            const defensePlayers = byLongestStint(onField.filter(p => p.position === 'Defense'));
+            const activeSides = [];
+            const leftOut = getSideOutgoing(onField, LEFT_SIDE);
+            const rightOut = getSideOutgoing(onField, RIGHT_SIDE);
+            if (leftOut) activeSides.push({ slots: LEFT_SIDE, outgoing: leftOut });
+            if (rightOut) activeSides.push({ slots: RIGHT_SIDE, outgoing: rightOut });
 
-            // Sub out the forward-most line that has players.
-            const subbedLine = offensePlayers.length > 0 ? offensePlayers
-                : midfieldPlayers.length > 0 ? midfieldPlayers
-                : defensePlayers.length > 0 ? defensePlayers
-                : null;
-
-            if (subbedLine) {
-                // Backfill the subbed line from the line below it; when the
-                // subbed line is Offense, Midfield is backfilled from Defense
-                // in the same proportion.
-                const shifters = subbedLine === offensePlayers
-                    ? [{ players: defensePlayers, to: 'Midfield' }, { players: midfieldPlayers, to: 'Offense' }]
-                    : subbedLine === midfieldPlayers
-                        ? [{ players: defensePlayers, to: 'Midfield' }]
-                        : [];
-                subOutLine(plan, subbedLine, bench, shifters);
+            if (activeSides.length > 0) {
+                activeSides.sort((a, b) => (stintTimes[b.outgoing.id] || 0) - (stintTimes[a.outgoing.id] || 0));
+                const numSubs = Math.min(activeSides.length, bench.length);
+                for (let i = 0; i < numSubs; i++) {
+                    advanceSide(plan, onField, activeSides[i].slots, bench[i]);
+                }
             } else {
-                const eligibleOnField = byLongestStint(onField.filter(p => p.position !== 'Goalie'));
+                const eligibleOnField = onField
+                    .filter(p => p.position !== 'Goalie')
+                    .sort((a, b) => (stintTimes[b.id] || 0) - (stintTimes[a.id] || 0));
                 const numSubs = Math.min(eligibleOnField.length, bench.length);
                 eligibleOnField.slice(0, numSubs).forEach(p => { plan[p.id] = BENCH; });
                 bench.slice(0, numSubs).forEach(p => { plan[p.id] = 'Unassigned'; });
@@ -149,26 +176,77 @@ export function clearSubPlan(state) {
 
 // --- Plan row layout ---
 
-// Which rows the substitution plan shows. When no positions are in use the
-// plan collapses to On Field/Bench, unless forcePositions asks for the full
-// Goalie/Defense/Midfield/Offense layout (e.g. during initial game setup).
+// Which rows the substitution plan shows, ordered top-to-bottom to match the
+// field: Offense (L/R), Midfield (L/R), Defense (L/R), Goalie, Unassigned (if
+// any), and Bench at the very bottom.
 export function getPlanRows(state) {
     if (arePositionsActive(state) || state.forcePositions) {
         const rows = [
-            { id: 'Goalie', label: 'Goalie', class: 'pos-g' },
-            { id: 'Defense', label: 'Defense', class: 'pos-d' },
-            { id: 'Midfield', label: 'Midfield', class: 'pos-m' },
-            { id: 'Offense', label: 'Offense', class: 'pos-o' }
+            {
+                id: 'Offense',
+                label: 'Offense',
+                class: 'pos-o',
+                slots: [
+                    { id: 'Offense Left', label: 'OL', class: 'pos-o' },
+                    { id: 'Offense Right', label: 'OR', class: 'pos-o' }
+                ]
+            },
+            {
+                id: 'Midfield',
+                label: 'Midfield',
+                class: 'pos-m',
+                slots: [
+                    { id: 'Midfield Left', label: 'ML', class: 'pos-m' },
+                    { id: 'Midfield Right', label: 'MR', class: 'pos-m' }
+                ]
+            },
+            {
+                id: 'Defense',
+                label: 'Defense',
+                class: 'pos-d',
+                slots: [
+                    { id: 'Defense Left', label: 'DL', class: 'pos-d' },
+                    { id: 'Defense Right', label: 'DR', class: 'pos-d' }
+                ]
+            },
+            {
+                id: 'Goalie',
+                label: 'Goalie',
+                class: 'pos-g',
+                slots: [
+                    { id: 'Goalie', label: 'Goalie', class: 'pos-g' }
+                ]
+            }
         ];
         if (state.roster.some(p => p.isPresent && (getCurrentSlot(p) === 'Unassigned' || getPlannedSlot(state, p) === 'Unassigned'))) {
-            rows.push({ id: 'Unassigned', label: 'Unassigned', class: 'pos-u' });
+            rows.push({
+                id: 'Unassigned',
+                label: 'Unassigned',
+                class: 'pos-u',
+                slots: [{ id: 'Unassigned', label: 'Unassigned', class: 'pos-u' }]
+            });
         }
-        rows.push({ id: BENCH, label: 'Bench', class: 'plan-pos-tag-bench' });
+        rows.push({
+            id: BENCH,
+            label: 'Bench',
+            class: 'plan-pos-tag-bench',
+            slots: [{ id: BENCH, label: 'Bench', class: 'plan-pos-tag-bench' }]
+        });
         return rows;
     }
     return [
-        { id: 'Unassigned', label: 'On Field', class: 'plan-pos-tag-field' },
-        { id: BENCH, label: 'Bench', class: 'plan-pos-tag-bench' }
+        {
+            id: 'Unassigned',
+            label: 'On Field',
+            class: 'plan-pos-tag-field',
+            slots: [{ id: 'Unassigned', label: 'On Field', class: 'plan-pos-tag-field' }]
+        },
+        {
+            id: BENCH,
+            label: 'Bench',
+            class: 'plan-pos-tag-bench',
+            slots: [{ id: BENCH, label: 'Bench', class: 'plan-pos-tag-bench' }]
+        }
     ];
 }
 

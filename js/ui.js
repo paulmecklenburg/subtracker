@@ -24,7 +24,8 @@ const els = {
     planToggleIcon: $('plan-toggle-icon'),
     planGrid: $('plan-grid'),
     planArrowsSvg: $('plan-arrows-svg'),
-    planArrowsPaths: $('plan-arrows-paths')
+    planArrowsPaths: $('plan-arrows-paths'),
+    planResetBtn: $('plan-reset-btn')
 };
 
 export function isDragInProgress() {
@@ -136,11 +137,43 @@ function renderPlayerList(container, state, players, times, secondaryTimes, card
     });
 }
 
+function renderPlanSlotCell(state, slot, isPlanned) {
+    const players = state.roster.filter(p =>
+        p.isPresent && (isPlanned ? getPlannedSlot(state, p) : getCurrentSlot(p)) === slot.id
+    );
+    const chipsHtml = players.map(p => isPlanned
+        ? `<div class="plan-chip plan-chip-right" draggable="true" data-player-id="${p.id}">${escapeHtml(p.name)}</div>`
+        : `<div class="plan-chip plan-chip-left" data-player-id="${p.id}">${escapeHtml(p.name)}</div>`
+    ).join('');
+
+    if (isPlanned) {
+        return `
+            <div class="plan-cell plan-cell-right plan-drop-zone" data-pos="${escapeHtml(slot.id)}">
+                <div class="plan-cell-header">
+                    <span class="plan-pos-tag ${slot.class}">${escapeHtml(slot.label)}</span>
+                </div>
+                <div class="plan-chips-container">${chipsHtml}</div>
+            </div>
+        `;
+    }
+    return `
+        <div class="plan-cell plan-cell-left">
+            <div class="plan-cell-header">
+                <span class="plan-pos-tag ${slot.class}">${escapeHtml(slot.label)}</span>
+            </div>
+            <div class="plan-chips-container">${chipsHtml}</div>
+        </div>
+    `;
+}
+
 function renderPlan(state, updatePlanGrid = true) {
     if (!els.planSection) return;
 
     els.planContent.classList.toggle('hidden', !state.planExpanded);
     els.planToggleIcon.classList.toggle('expanded', state.planExpanded);
+    if (els.planResetBtn) {
+        els.planResetBtn.classList.toggle('hidden', !!state.disableAutoAdvance);
+    }
 
     const changes = getPlannedChanges(state);
     if (changes.length > 0) {
@@ -155,32 +188,22 @@ function renderPlan(state, updatePlanGrid = true) {
     const rows = getPlanRows(state);
     els.planGrid.innerHTML = '';
     rows.forEach(row => {
-        const currentPlayers = state.roster.filter(p => p.isPresent && getCurrentSlot(p) === row.id);
-        const plannedPlayers = state.roster.filter(p => p.isPresent && getPlannedSlot(state, p) === row.id);
+        const slots = row.slots || [{ id: row.id, label: row.label, class: row.class }];
+        const isSplit = slots.length > 1;
 
-        const leftChipsHtml = currentPlayers.map(p =>
-            `<div class="plan-chip plan-chip-left" data-player-id="${p.id}">${escapeHtml(p.name)}</div>`
-        ).join('');
-        const rightChipsHtml = plannedPlayers.map(p =>
-            `<div class="plan-chip plan-chip-right" draggable="true" data-player-id="${p.id}">${escapeHtml(p.name)}</div>`
-        ).join('');
+        const leftHtml = isSplit
+            ? `<div class="plan-split-pair">${slots.map(s => renderPlanSlotCell(state, s, false)).join('')}</div>`
+            : renderPlanSlotCell(state, slots[0], false);
+        const rightHtml = isSplit
+            ? `<div class="plan-split-pair">${slots.map(s => renderPlanSlotCell(state, s, true)).join('')}</div>`
+            : renderPlanSlotCell(state, slots[0], true);
 
         const rowDiv = document.createElement('div');
         rowDiv.className = 'plan-pos-row';
         rowDiv.innerHTML = `
-            <div class="plan-cell plan-cell-left">
-                <div class="plan-cell-header">
-                    <span class="plan-pos-tag ${row.class}">${escapeHtml(row.label)}</span>
-                </div>
-                <div class="plan-chips-container">${leftChipsHtml}</div>
-            </div>
+            ${leftHtml}
             <div class="plan-row-spacer"></div>
-            <div class="plan-cell plan-cell-right plan-drop-zone" data-pos="${row.id}">
-                <div class="plan-cell-header">
-                    <span class="plan-pos-tag ${row.class}">${escapeHtml(row.label)}</span>
-                </div>
-                <div class="plan-chips-container">${rightChipsHtml}</div>
-            </div>
+            ${rightHtml}
         `;
         els.planGrid.appendChild(rowDiv);
     });
@@ -220,8 +243,9 @@ function drawPlanArrows(state) {
         const dx = Math.max(25, (x2 - x1) * 0.45);
         const targetPos = getPlannedSlot(state, p);
         const isCollapsedField = targetPos === 'Unassigned' && !arePositionsActive(state) && !state.forcePositions;
-        const color = isCollapsedField ? '#2ecc71' : posData(targetPos).color;
-        const markerId = isCollapsedField ? 'field' : targetPos.toLowerCase();
+        const info = posData(targetPos);
+        const color = isCollapsedField ? '#2ecc71' : info.color;
+        const markerId = isCollapsedField ? 'field' : (info.marker || targetPos.toLowerCase());
 
         pathsHtml += `<path d="M ${x1.toFixed(1)} ${y1.toFixed(1)} C ${(x1 + dx).toFixed(1)} ${y1.toFixed(1)}, ${(x2 - dx).toFixed(1)} ${y2.toFixed(1)}, ${x2.toFixed(1)} ${y2.toFixed(1)}" class="plan-arrow-path" stroke="${color}" marker-end="url(#arrow-${markerId})"/>`;
     });
@@ -388,18 +412,28 @@ export function initPositionDialog(onSet) {
     });
 }
 
+const DIALOG_POSITIONS = [
+    'Offense Left', 'Offense Right',
+    'Midfield Left', 'Midfield Right',
+    'Defense Left', 'Defense Right',
+    'Goalie',
+    'Unassigned'
+];
+
 function openPositionDialog(id, onSet) {
     const player = currentRosterRef.roster.find(p => p.id === id);
     if (!player) return;
 
     if (dialog.title) dialog.title.textContent = `Configuring: ${player.name}`;
     dialog.options.innerHTML = '';
-    POSITIONS.forEach(pos => {
+    DIALOG_POSITIONS.forEach(pos => {
         const btn = document.createElement('button');
         const isSelected = player.position === pos;
-        btn.innerHTML = pos === 'Unassigned'
-            ? `<strong>-</strong> Unassigned`
-            : `<strong>${pos.charAt(0)}</strong> ${pos.slice(1)}`;
+        const info = posData(pos);
+        btn.innerHTML = `<strong>${info.short}</strong> ${escapeHtml(pos)}`;
+        if (pos === 'Goalie' || pos === 'Unassigned') {
+            btn.classList.add('pos-option-full');
+        }
         if (isSelected) {
             btn.classList.add('selected');
         }

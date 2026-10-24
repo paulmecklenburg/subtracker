@@ -316,12 +316,20 @@ h2 {
     align-items: stretch;
 }
 
+.plan-split-pair {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4px;
+    min-width: 0;
+}
+
 .plan-cell {
     background: #fdfdfd;
     border: 1px solid #e2e8f0;
     border-radius: 6px;
     padding: 6px;
     min-height: 42px;
+    min-width: 0;
     display: flex;
     flex-direction: column;
     gap: 4px;
@@ -380,10 +388,13 @@ h2 {
     box-shadow: 0 1px 2px rgba(0,0,0,0.05);
     user-select: none;
     -webkit-user-select: none;
-    display: inline-flex;
-    align-items: center;
+    display: inline-block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
     white-space: nowrap;
     line-height: 1.4;
+    box-sizing: border-box;
 }
 
 .plan-chip-left {
@@ -499,7 +510,7 @@ button:active { opacity: 0.7; }
     border-radius: 8px;
     box-shadow: 0 4px 20px rgba(0,0,0,0.2);
     padding: 15px;
-    width: min(250px, calc(100vw - 32px));
+    width: min(310px, calc(100vw - 32px));
 }
 
 #position-dialog::backdrop {
@@ -516,8 +527,8 @@ button:active { opacity: 0.7; }
 }
 
 #position-options {
-    display: flex;
-    flex-direction: column;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
     gap: 8px;
     margin-bottom: 12px;
 }
@@ -527,7 +538,12 @@ button:active { opacity: 0.7; }
     background: #f8f9fa;
     color: var(--text-color);
     border: 1px solid #eee;
-    font-size: 0.9rem;
+    font-size: 0.85rem;
+    padding: 10px 10px;
+}
+
+#position-options button.pos-option-full {
+    grid-column: 1 / -1;
 }
 
 #position-options button.selected {

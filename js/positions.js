@@ -1,14 +1,29 @@
 // Single source of truth for positions: order, display short names, CSS classes, colors.
-export const POSITIONS = ['Unassigned', 'Goalie', 'Defense', 'Midfield', 'Offense'];
+export const POSITIONS = [
+    'Unassigned',
+    'Goalie',
+    'Defense Left',
+    'Defense Right',
+    'Midfield Left',
+    'Midfield Right',
+    'Offense Left',
+    'Offense Right'
+];
 export const BENCH = 'Bench';
 
+// On-field positions that only allow one player at a time.
+export const SINGLE_PLAYER_POSITIONS = POSITIONS.filter(p => p !== 'Unassigned');
+
 export const POS_MAP = {
-    'Unassigned': { short: '-', class: 'pos-u', color: '#bdc3c7' },
-    'Goalie': { short: 'G', class: 'pos-g', color: '#f39c12' },
-    'Defense': { short: 'D', class: 'pos-d', color: '#2980b9' },
-    'Midfield': { short: 'M', class: 'pos-m', color: '#27ae60' },
-    'Offense': { short: 'O', class: 'pos-o', color: '#c0392b' },
-    'Bench': { short: 'B', class: 'pos-bench', color: '#3498db' }
+    'Unassigned': { short: '-', class: 'pos-u', color: '#bdc3c7', marker: 'unassigned' },
+    'Goalie': { short: 'G', class: 'pos-g', color: '#f39c12', marker: 'goalie' },
+    'Defense Left': { short: 'DL', class: 'pos-d', color: '#2980b9', marker: 'defense' },
+    'Defense Right': { short: 'DR', class: 'pos-d', color: '#2980b9', marker: 'defense' },
+    'Midfield Left': { short: 'ML', class: 'pos-m', color: '#27ae60', marker: 'midfield' },
+    'Midfield Right': { short: 'MR', class: 'pos-m', color: '#27ae60', marker: 'midfield' },
+    'Offense Left': { short: 'OL', class: 'pos-o', color: '#c0392b', marker: 'offense' },
+    'Offense Right': { short: 'OR', class: 'pos-o', color: '#c0392b', marker: 'offense' },
+    'Bench': { short: 'B', class: 'pos-bench', color: '#3498db', marker: 'bench' }
 };
 
 export function posData(position) {

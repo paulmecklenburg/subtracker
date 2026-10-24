@@ -2,7 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
     createInitialState, createPlayer, loadState, saveState, resetTimes,
-    getLiveTimes, syncState, toggleClock, togglePresence, subPlayer, adjustAllTimes
+    getLiveTimes, syncState, toggleClock, togglePresence, subPlayer,
+    setPlayerPosition, adjustAllTimes
 } from '../js/state.js';
 
 // Minimal localStorage stub.
@@ -43,7 +44,7 @@ test('getLiveTimes: game not running means no delta applied', () => {
 test('getLiveTimes: running clock accrues game and player time', () => {
     const clock = fakeClock();
     const state = createInitialState();
-    state.roster = [makePlayer('A', { onField: true, position: 'Defense' })];
+    state.roster = [makePlayer('A', { onField: true, position: 'Defense Left' })];
     toggleClock(state, clock.now());
     clock.advance(10000);
     const t = getLiveTimes(state, clock.now());
@@ -79,7 +80,7 @@ test('syncState folds pending delta into stored totals', () => {
     const clock = fakeClock();
     const state = createInitialState();
     state.roster = [
-        makePlayer('A', { onField: true, position: 'Defense' }),
+        makePlayer('A', { onField: true, position: 'Defense Left' }),
         makePlayer('B', { onField: true, position: 'Goalie' }),
         makePlayer('C', { onField: false })
     ];
@@ -123,7 +124,7 @@ test('togglePresence on on-field player does not lose accrued time', () => {
 test('togglePresence on absent player mid-match resets stint and position', () => {
     const clock = fakeClock();
     const state = createInitialState();
-    const p = makePlayer('A', { isPresent: false, onField: false, currentStintTime: 25000, position: 'Defense' });
+    const p = makePlayer('A', { isPresent: false, onField: false, currentStintTime: 25000, position: 'Defense Left' });
     state.roster = [p];
     state.accumulatedGameTime = 60000;
     togglePresence(state, p.id, clock.now());
@@ -136,7 +137,7 @@ test('togglePresence on absent player mid-match resets stint and position', () =
 test('subPlayer clears pending plan entry for the subbed player', () => {
     const clock = fakeClock();
     const state = createInitialState();
-    const p = makePlayer('A', { onField: true, position: 'Defense' });
+    const p = makePlayer('A', { onField: true, position: 'Defense Left' });
     state.roster = [p];
     state.subPlan = { [p.id]: 'Bench' };
     subPlayer(state, p.id, clock.now());
@@ -144,22 +145,35 @@ test('subPlayer clears pending plan entry for the subbed player', () => {
     assert.equal(state.subPlan[p.id], undefined);
 });
 
-test('subPlayer: subbing in after short bench keeps stint and position', () => {
+test('subPlayer: subbing in after short bench keeps stint and position when unoccupied', () => {
     const clock = fakeClock();
     const state = createInitialState();
     state.accumulatedGameTime = 0;
-    const p = makePlayer('A', { onField: false, lastSubOutGameTime: 0, currentStintTime: 10000, position: 'Midfield' });
+    const p = makePlayer('A', { onField: false, lastSubOutGameTime: 0, currentStintTime: 10000, position: 'Midfield Left' });
     state.roster = [p];
     subPlayer(state, p.id, clock.now(), 30000);
     assert.equal(p.onField, true);
     assert.equal(p.currentStintTime, 10000); // stint not reset
-    assert.equal(p.position, 'Midfield'); // position kept
+    assert.equal(p.position, 'Midfield Left'); // position kept
+});
+
+test('subPlayer: subbing in after short bench resets position to Unassigned if slot was taken', () => {
+    const clock = fakeClock();
+    const state = createInitialState();
+    state.accumulatedGameTime = 0;
+    const p1 = makePlayer('A', { onField: false, lastSubOutGameTime: 0, currentStintTime: 10000, position: 'Midfield Left' });
+    const p2 = makePlayer('B', { onField: true, position: 'Midfield Left' });
+    state.roster = [p1, p2];
+    subPlayer(state, p1.id, clock.now(), 30000);
+    assert.equal(p1.onField, true);
+    assert.equal(p1.position, 'Unassigned');
+    assert.equal(p2.position, 'Midfield Left');
 });
 
 test('subPlayer: subbing in after long bench resets stint and position', () => {
     const clock = fakeClock();
     const state = createInitialState();
-    const p = makePlayer('A', { onField: false, lastSubOutGameTime: 0, currentStintTime: 20000, position: 'Midfield' });
+    const p = makePlayer('A', { onField: false, lastSubOutGameTime: 0, currentStintTime: 20000, position: 'Midfield Left' });
     state.roster = [p];
     state.accumulatedGameTime = 60000;
     subPlayer(state, p.id, clock.now(), 30000);
@@ -177,6 +191,24 @@ test('subPlayer: subbing out records lastSubOutGameTime', () => {
     subPlayer(state, p.id, clock.now());
     assert.equal(p.onField, false);
     assert.equal(p.lastSubOutGameTime, 45000);
+});
+
+test('setPlayerPosition: limits to one player per on-field position by swapping', () => {
+    const state = createInitialState();
+    const p1 = makePlayer('A', { onField: true, position: 'Defense Left' });
+    const p2 = makePlayer('B', { onField: true, position: 'Defense Right' });
+    const p3 = makePlayer('C', { onField: true, position: 'Unassigned' });
+    state.roster = [p1, p2, p3];
+
+    // Swap Defense Left and Defense Right
+    setPlayerPosition(state, p1.id, 'Defense Right');
+    assert.equal(p1.position, 'Defense Right');
+    assert.equal(p2.position, 'Defense Left');
+
+    // Assigning Unassigned player to an occupied position unassigns the previous holder
+    setPlayerPosition(state, p3.id, 'Defense Right');
+    assert.equal(p3.position, 'Defense Right');
+    assert.equal(p1.position, 'Unassigned');
 });
 
 test('adjustAllTimes: rewind reduces clocks, clamps at zero, clamps lastSubOutGameTime', () => {
@@ -209,16 +241,18 @@ test('adjustAllTimes: fast forward adds to on-field clocks', () => {
 
 test('resetTimes zeroes everything but keeps roster and preferences', () => {
     const state = createInitialState();
-    state.roster = [makePlayer('A', { onField: true, totalPlayTime: 999, position: 'Offense' })];
+    state.roster = [makePlayer('A', { onField: true, totalPlayTime: 999, position: 'Offense Left' })];
     state.gameRunning = true;
     state.accumulatedGameTime = 999;
     state.subPlan = { [state.roster[0].id]: 'Bench' };
     state.forcePositions = true;
+    state.disableAutoAdvance = true;
     resetTimes(state);
     assert.equal(state.gameRunning, false);
     assert.equal(state.accumulatedGameTime, 0);
     assert.equal(state.subPlan, null);
     assert.equal(state.forcePositions, true);
+    assert.equal(state.disableAutoAdvance, true);
     assert.equal(state.roster.length, 1);
     assert.equal(state.roster[0].totalPlayTime, 0);
     assert.equal(state.roster[0].onField, false);
@@ -289,13 +323,13 @@ test('loadState: auto-resets after 24 hours', () => {
     assert.equal(loaded.roster.length, 1); // roster kept
 });
 
-test('loadState: migrates legacy players missing fields', () => {
+test('loadState: migrates legacy players missing fields or with old position names', () => {
     const storage = fakeStorage();
     storage.setItem('subtracker_state', JSON.stringify({
         gameRunning: false,
         accumulatedGameTime: 0,
         lastSyncTimestamp: null,
-        roster: [{ id: 'x', name: 'Old' }]
+        roster: [{ id: 'x', name: 'Old', position: 'Defense' }]
     }));
     const loaded = loadState(storage);
     const p = loaded.roster[0];
@@ -308,7 +342,7 @@ test('loadState: migrates legacy players missing fields', () => {
     assert.equal(p.onField, false);
 });
 
-test('loadState: defaults forcePositions to false for legacy saves', () => {
+test('loadState: defaults forcePositions and disableAutoAdvance to false for legacy saves', () => {
     const storage = fakeStorage();
     storage.setItem('subtracker_state', JSON.stringify({
         gameRunning: false,
@@ -318,9 +352,16 @@ test('loadState: defaults forcePositions to false for legacy saves', () => {
     }));
     const loaded = loadState(storage);
     assert.equal(loaded.forcePositions, false);
+    assert.equal(loaded.disableAutoAdvance, false);
 
-    // Round-trip: an explicitly enabled toggle persists via a plain load
-    // (lastUpdate recent, so the 24h auto-reset branch is not taken).
-    storage.setItem('subtracker_state', JSON.stringify({ roster: [], forcePositions: true, lastUpdate: Date.now() }));
-    assert.equal(loadState(storage).forcePositions, true);
+    // Round-trip: explicitly enabled toggles persist via a plain load
+    storage.setItem('subtracker_state', JSON.stringify({
+        roster: [],
+        forcePositions: true,
+        disableAutoAdvance: true,
+        lastUpdate: Date.now()
+    }));
+    const loaded2 = loadState(storage);
+    assert.equal(loaded2.forcePositions, true);
+    assert.equal(loaded2.disableAutoAdvance, true);
 });

@@ -1,5 +1,5 @@
 // Pure state + time logic. No DOM access at import time (importable from Node tests).
-import { POSITIONS, newId } from './positions.js';
+import { POSITIONS, SINGLE_PLAYER_POSITIONS, newId } from './positions.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -12,7 +12,8 @@ export function createInitialState() {
         roster: [],
         subPlan: null,
         planExpanded: false,
-        forcePositions: false
+        forcePositions: false,
+        disableAutoAdvance: false
     };
 }
 
@@ -61,8 +62,9 @@ export function loadState(storage = localStorage, now = Date.now()) {
     }
     if (state.planExpanded === undefined) state.planExpanded = false;
     state.forcePositions = !!state.forcePositions;
+    state.disableAutoAdvance = !!state.disableAutoAdvance;
 
-    // Migration: ensure all players have needed properties.
+    // Migration: ensure all players have needed properties and valid positions.
     state.roster.forEach(p => {
         if (p.onField === undefined) p.onField = false;
         if (p.totalPlayTime === undefined) p.totalPlayTime = 0;
@@ -70,7 +72,7 @@ export function loadState(storage = localStorage, now = Date.now()) {
         if (p.currentStintTime === undefined) p.currentStintTime = 0;
         if (p.lastSubOutGameTime === undefined) p.lastSubOutGameTime = 0;
         if (p.goaliePlayTime === undefined) p.goaliePlayTime = 0;
-        if (p.position === undefined) p.position = 'Unassigned';
+        if (!p.position || !POSITIONS.includes(p.position)) p.position = 'Unassigned';
         if (p.id === undefined) p.id = newId();
         if (p.name === undefined) p.name = '?';
     });
@@ -217,6 +219,9 @@ export function subPlayer(state, id, now = Date.now(), benchResetMs = BENCH_STIN
         if (benchDuration >= benchResetMs) {
             player.currentStintTime = 0;
             player.position = 'Unassigned';
+        } else if (SINGLE_PLAYER_POSITIONS.includes(player.position)) {
+            const occupied = state.roster.some(o => o.id !== player.id && o.onField && o.isPresent && o.position === player.position);
+            if (occupied) player.position = 'Unassigned';
         }
     } else {
         player.lastSubOutGameTime = state.accumulatedGameTime;
@@ -225,6 +230,20 @@ export function subPlayer(state, id, now = Date.now(), benchResetMs = BENCH_STIN
     if (state.subPlan && state.subPlan[id] !== undefined) {
         delete state.subPlan[id];
     }
+    return state;
+}
+
+export function setPlayerPosition(state, id, pos) {
+    const player = state.roster.find(p => p.id === id);
+    if (!player) return state;
+    const prevPos = player.position || 'Unassigned';
+    if (SINGLE_PLAYER_POSITIONS.includes(pos) && player.onField) {
+        const existing = state.roster.find(p => p.id !== id && p.onField && p.isPresent && p.position === pos);
+        if (existing) {
+            existing.position = prevPos;
+        }
+    }
+    player.position = pos;
     return state;
 }
 
